@@ -116,6 +116,7 @@ type Configuration struct {
 
 	TLSCertificateChain string `name:"tls-certificate-chain" usage:"Filesystem path to the certificate chain including any intermediate CAs and the TLS public key"`
 	TLSCertificateKey   string `name:"tls-certificate-key" usage:"Filesystem path to the TLS private key"`
+	I2PEnabled          bool   `name:"i2p-enabled" usage:"Configure gotosocial to only accept or create connections within the anonymous I2P network"`
 
 	OIDCEnabled          bool     `name:"oidc-enabled" usage:"Enabled OIDC authorization for this instance. If set to true, then the other OIDC flags must also be set."`
 	OIDCIdpName          string   `name:"oidc-idp-name" usage:"Name of the OIDC identity provider. Will be shown to the user when logging in."`

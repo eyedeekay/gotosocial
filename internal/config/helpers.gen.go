@@ -1432,6 +1432,13 @@ func (st *ConfigState) GetLetsEncryptEnabled() (v bool) {
 	return
 }
 
+func (st *ConfigState) GetI2PEnabled() (v bool) {
+	st.mutex.Lock()
+	v = st.config.I2PEnabled
+	st.mutex.Unlock()
+	return
+}
+
 // SetLetsEncryptEnabled safely sets the Configuration value for state's 'LetsEncryptEnabled' field
 func (st *ConfigState) SetLetsEncryptEnabled(v bool) {
 	st.mutex.Lock()
@@ -1445,6 +1452,10 @@ func LetsEncryptEnabledFlag() string { return "letsencrypt-enabled" }
 
 // GetLetsEncryptEnabled safely fetches the value for global configuration 'LetsEncryptEnabled' field
 func GetLetsEncryptEnabled() bool { return global.GetLetsEncryptEnabled() }
+
+func GetI2PEnabled() bool {
+	return global.GetI2PEnabled()
+}
 
 // SetLetsEncryptEnabled safely sets the value for global configuration 'LetsEncryptEnabled' field
 func SetLetsEncryptEnabled(v bool) { global.SetLetsEncryptEnabled(v) }

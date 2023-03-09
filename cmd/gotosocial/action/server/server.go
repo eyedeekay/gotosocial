@@ -98,8 +98,13 @@ var Start action.GTSAction = func(ctx context.Context) error {
 	// Set the state storage driver
 	state.Storage = storage
 
+	var client *httpclient.Client
 	// Build HTTP client (TODO: add configurables here)
-	client := httpclient.New(httpclient.Config{})
+	if config.GetI2PEnabled() {
+		client = httpclient.New(httpclient.Config{I2PConnections: true})
+	} else {
+		client = httpclient.New(httpclient.Config{})
+	}
 
 	// Initialize workers.
 	state.Workers.Start()

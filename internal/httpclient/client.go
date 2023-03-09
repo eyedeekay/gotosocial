@@ -30,6 +30,8 @@ import (
 	"codeberg.org/gruf/go-bytesize"
 	"codeberg.org/gruf/go-kv"
 	"github.com/cornelk/hashmap"
+	"github.com/eyedeekay/onramp"
+	"github.com/eyedeekay/sam3"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
 )
 
@@ -76,6 +78,9 @@ type Config struct {
 
 	// BlockRanges blocks outgoing communiciations to given IP nets.
 	BlockRanges []netip.Prefix
+
+	// I2PConnections allows the client to build connections inside of I2P
+	I2PConnections bool
 }
 
 // Client wraps an underlying http.Client{} to provide the following:
@@ -89,6 +94,7 @@ type Config struct {
 type Client struct {
 	client http.Client
 	queue  *hashmap.Map[string, chan struct{}]
+	garlic *onramp.Garlic
 	bmax   int64 // max response body size
 	cmax   int   // max open conns per host
 }
@@ -131,18 +137,38 @@ func New(cfg Config) *Client {
 	c.bmax = cfg.MaxBodySize
 	c.queue = hashmap.New[string, chan struct{}]()
 
-	// Set underlying HTTP client roundtripper
-	c.client.Transport = &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		ForceAttemptHTTP2:     true,
-		DialContext:           d.DialContext,
-		MaxIdleConns:          cfg.MaxIdleConns,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		ReadBufferSize:        cfg.ReadBufferSize,
-		WriteBufferSize:       cfg.WriteBufferSize,
-		DisableCompression:    cfg.DisableCompression,
+	if cfg.I2PConnections {
+		var err error
+		c.garlic, err = onramp.NewGarlic("gts-client", "127.0.0.1:7656", sam3.Options_Wide)
+		if err != nil {
+			panic(err)
+		}
+		c.client.Transport = &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ForceAttemptHTTP2:     true,
+			DialContext:           c.garlic.DialContext,
+			MaxIdleConns:          cfg.MaxIdleConns,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			ReadBufferSize:        cfg.ReadBufferSize,
+			WriteBufferSize:       cfg.WriteBufferSize,
+			DisableCompression:    cfg.DisableCompression,
+		}
+	} else {
+		// Set underlying HTTP client roundtripper
+		c.client.Transport = &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			ForceAttemptHTTP2:     true,
+			DialContext:           d.DialContext,
+			MaxIdleConns:          cfg.MaxIdleConns,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			ReadBufferSize:        cfg.ReadBufferSize,
+			WriteBufferSize:       cfg.WriteBufferSize,
+			DisableCompression:    cfg.DisableCompression,
+		}
 	}
 
 	return &c
