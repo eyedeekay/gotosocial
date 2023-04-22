@@ -1,25 +1,26 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package gtsmodel
 
 import (
 	"time"
+
+	"github.com/superseriousbusiness/gotosocial/internal/log"
 )
 
 // Status represents a user-created 'post' or 'status' in the database, either remote or local
@@ -66,25 +67,118 @@ type Status struct {
 	Likeable                 *bool              `validate:"-" bun:",notnull"`                                                                          // This status can be liked/faved
 }
 
-/*
-	The below functions are added onto the gtsmodel status so that it satisfies
-	the Timelineable interface in internal/timeline.
-*/
-
+// GetID implements timeline.Timelineable{}.
 func (s *Status) GetID() string {
 	return s.ID
 }
 
+// GetAccountID implements timeline.Timelineable{}.
 func (s *Status) GetAccountID() string {
 	return s.AccountID
 }
 
+// GetBoostID implements timeline.Timelineable{}.
 func (s *Status) GetBoostOfID() string {
 	return s.BoostOfID
 }
 
+// GetBoostOfAccountID implements timeline.Timelineable{}.
 func (s *Status) GetBoostOfAccountID() string {
 	return s.BoostOfAccountID
+}
+
+// AttachmentsPopulated returns whether media attachments are populated according to current AttachmentIDs.
+func (s *Status) AttachmentsPopulated() bool {
+	if len(s.AttachmentIDs) != len(s.Attachments) {
+		// this is the quickest indicator.
+		return false
+	}
+
+	// Attachments must be in same order.
+	for i, id := range s.AttachmentIDs {
+		if s.Attachments[i] == nil {
+			log.Warnf(nil, "nil attachment in slice for status %s", s.URI)
+			continue
+		}
+		if s.Attachments[i].ID != id {
+			return false
+		}
+	}
+
+	return true
+}
+
+// TagsPopulated returns whether tags are populated according to current TagIDs.
+func (s *Status) TagsPopulated() bool {
+	if len(s.TagIDs) != len(s.Tags) {
+		// this is the quickest indicator.
+		return false
+	}
+
+	// Tags must be in same order.
+	for i, id := range s.TagIDs {
+		if s.Tags[i] == nil {
+			log.Warnf(nil, "nil tag in slice for status %s", s.URI)
+			continue
+		}
+		if s.Tags[i].ID != id {
+			return false
+		}
+	}
+
+	return true
+}
+
+// MentionsPopulated returns whether mentions are populated according to current MentionIDs.
+func (s *Status) MentionsPopulated() bool {
+	if len(s.MentionIDs) != len(s.Mentions) {
+		// this is the quickest indicator.
+		return false
+	}
+
+	// Mentions must be in same order.
+	for i, id := range s.MentionIDs {
+		if s.Mentions[i] == nil {
+			log.Warnf(nil, "nil mention in slice for status %s", s.URI)
+			continue
+		}
+		if s.Mentions[i].ID != id {
+			return false
+		}
+	}
+
+	return true
+}
+
+// EmojisPopulated returns whether emojis are populated according to current EmojiIDs.
+func (s *Status) EmojisPopulated() bool {
+	if len(s.EmojiIDs) != len(s.Emojis) {
+		// this is the quickest indicator.
+		return false
+	}
+
+	// Emojis must be in same order.
+	for i, id := range s.EmojiIDs {
+		if s.Emojis[i] == nil {
+			log.Warnf(nil, "nil emoji in slice for status %s", s.URI)
+			continue
+		}
+		if s.Emojis[i].ID != id {
+			return false
+		}
+	}
+
+	return true
+}
+
+// MentionsAccount returns whether status mentions the given account ID.
+func (s *Status) MentionsAccount(id string) bool {
+	for _, mention := range s.Mentions {
+		if mention.TargetAccountID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // StatusToTag is an intermediate struct to facilitate the many2many relationship between a status and one or more tags.

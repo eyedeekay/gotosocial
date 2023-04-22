@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package email
 
@@ -50,41 +49,40 @@ type noopSender struct {
 }
 
 func (s *noopSender) SendConfirmEmail(toAddress string, data ConfirmData) error {
-	buf := &bytes.Buffer{}
-	if err := s.template.ExecuteTemplate(buf, confirmTemplate, data); err != nil {
-		return err
-	}
-	confirmBody := buf.String()
-
-	msg, err := assembleMessage(confirmSubject, confirmBody, toAddress, "test@example.org")
-	if err != nil {
-		return err
-	}
-
-	log.Tracef(nil, "NOT SENDING confirmation email to %s with contents: %s", toAddress, msg)
-
-	if s.sendCallback != nil {
-		s.sendCallback(toAddress, string(msg))
-	}
-	return nil
+	return s.sendTemplate(confirmTemplate, confirmSubject, data, toAddress)
 }
 
 func (s *noopSender) SendResetEmail(toAddress string, data ResetData) error {
+	return s.sendTemplate(resetTemplate, resetSubject, data, toAddress)
+}
+
+func (s *noopSender) SendTestEmail(toAddress string, data TestData) error {
+	return s.sendTemplate(testTemplate, testSubject, data, toAddress)
+}
+
+func (s *noopSender) SendNewReportEmail(toAddresses []string, data NewReportData) error {
+	return s.sendTemplate(newReportTemplate, newReportSubject, data, toAddresses...)
+}
+
+func (s *noopSender) SendReportClosedEmail(toAddress string, data ReportClosedData) error {
+	return s.sendTemplate(reportClosedTemplate, reportClosedSubject, data, toAddress)
+}
+
+func (s *noopSender) sendTemplate(template string, subject string, data any, toAddresses ...string) error {
 	buf := &bytes.Buffer{}
-	if err := s.template.ExecuteTemplate(buf, resetTemplate, data); err != nil {
+	if err := s.template.ExecuteTemplate(buf, template, data); err != nil {
 		return err
 	}
-	resetBody := buf.String()
 
-	msg, err := assembleMessage(resetSubject, resetBody, toAddress, "test@example.org")
+	msg, err := assembleMessage(subject, buf.String(), "test@example.org", toAddresses...)
 	if err != nil {
 		return err
 	}
 
-	log.Tracef(nil, "NOT SENDING reset email to %s with contents: %s", toAddress, msg)
+	log.Tracef(nil, "NOT SENDING email to %s with contents: %s", toAddresses, msg)
 
 	if s.sendCallback != nil {
-		s.sendCallback(toAddress, string(msg))
+		s.sendCallback(toAddresses[0], string(msg))
 	}
 
 	return nil

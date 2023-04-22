@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package account
 
@@ -34,7 +33,7 @@ import (
 // BookmarksGet returns a pageable response of statuses that are bookmarked by requestingAccount.
 // Paging for this response is done based on bookmark ID rather than status ID.
 func (p *Processor) BookmarksGet(ctx context.Context, requestingAccount *gtsmodel.Account, limit int, maxID string, minID string) (*apimodel.PageableResponse, gtserror.WithCode) {
-	bookmarks, err := p.state.DB.GetBookmarks(ctx, requestingAccount.ID, limit, maxID, minID)
+	bookmarks, err := p.state.DB.GetStatusBookmarks(ctx, requestingAccount.ID, limit, maxID, minID)
 	if err != nil {
 		return nil, gtserror.NewErrorInternalError(err)
 	}
@@ -57,7 +56,7 @@ func (p *Processor) BookmarksGet(ctx context.Context, requestingAccount *gtsmode
 			return nil, gtserror.NewErrorInternalError(err) // A real error has occurred.
 		}
 
-		visible, err := p.filter.StatusVisible(ctx, status, requestingAccount)
+		visible, err := p.filter.StatusVisible(ctx, requestingAccount, status)
 		if err != nil {
 			log.Errorf(ctx, "error checking bookmarked status visibility: %s", err)
 			continue

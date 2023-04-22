@@ -1,6 +1,7 @@
 /*
 	GoToSocial
-	Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
+	Copyright (C) GoToSocial Authors admin@gotosocial.org
+	SPDX-License-Identifier: AGPL-3.0-or-later
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published by
@@ -127,11 +128,13 @@ function ImportList({ list, data: blockedInstances }) {
 					} />
 				}
 
-				<DomainCheckList
-					field={form.domains}
-					blockedInstances={blockedInstances}
-					commentType={showComment.value}
-				/>
+				<div className="checkbox-list-wrapper">
+					<DomainCheckList
+						field={form.domains}
+						blockedInstances={blockedInstances}
+						commentType={showComment.value}
+					/>
+				</div>
 
 				<TextArea
 					field={form.privateComment}
@@ -182,7 +185,6 @@ function DomainCheckList({ field, blockedInstances, commentType }) {
 				field={field}
 				header={<>
 					<b>Domain</b>
-					<b></b>
 					<b>
 						{commentType == "public_comment" && "Public comment"}
 						{commentType == "private_comment" && "Private comment"}
@@ -287,16 +289,18 @@ function DomainEntry({ entry, onChange, extraProps: { alreadyExists, comment } }
 
 	return (
 		<>
-			<TextInput
-				field={domainField}
-				onChange={(e) => {
-					domainField.onChange(e);
-					onChange({ domain: e.target.value, checked: true });
-				}}
-			/>
-			<span id="icon" onClick={clickIcon}>
-				<DomainEntryIcon alreadyExists={alreadyExists} suggestion={entry.suggest} onChange={onChange} />
-			</span>
+			<div className="domain-input">
+				<TextInput
+					field={domainField}
+					onChange={(e) => {
+						domainField.onChange(e);
+						onChange({ domain: e.target.value, checked: true });
+					}}
+				/>
+				<span id="icon" onClick={clickIcon}>
+					<DomainEntryIcon alreadyExists={alreadyExists} suggestion={entry.suggest} onChange={onChange} />
+				</span>
+			</div>
 			<p>{comment}</p>
 		</>
 	);
@@ -320,7 +324,7 @@ function DomainEntryIcon({ alreadyExists, suggestion }) {
 
 	return (
 		<>
-			<i className={`fa ${icon}`} aria-hidden="true" title={text}></i>
+			<i className={`fa fa-fw ${icon}`} aria-hidden="true" title={text}></i>
 			<span className="sr-only">{text}</span>
 		</>
 	);

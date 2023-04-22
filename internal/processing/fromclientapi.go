@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package processing
 
@@ -82,6 +81,9 @@ func (p *Processor) ProcessFromClientAPI(ctx context.Context, clientMsg messages
 		case ap.ObjectProfile, ap.ActorPerson:
 			// UPDATE ACCOUNT/PROFILE
 			return p.processUpdateAccountFromClientAPI(ctx, clientMsg)
+		case ap.ActivityFlag:
+			// UPDATE A FLAG/REPORT (mark as resolved/closed)
+			return p.processUpdateReportFromClientAPI(ctx, clientMsg)
 		}
 	case ap.ActivityAccept:
 		// ACCEPT
@@ -137,8 +139,8 @@ func (p *Processor) processCreateAccountFromClientAPI(ctx context.Context, clien
 		return errors.New("account was not parseable as *gtsmodel.Account")
 	}
 
-	// return if the account isn't from this domain
-	if account.Domain != "" {
+	// Do nothing if this isn't our activity.
+	if !account.IsLocal() {
 		return nil
 	}
 
@@ -158,11 +160,7 @@ func (p *Processor) processCreateStatusFromClientAPI(ctx context.Context, client
 		return errors.New("note was not parseable as *gtsmodel.Status")
 	}
 
-	if err := p.timelineStatus(ctx, status); err != nil {
-		return err
-	}
-
-	if err := p.notifyStatus(ctx, status); err != nil {
+	if err := p.timelineAndNotifyStatus(ctx, status); err != nil {
 		return err
 	}
 
@@ -201,7 +199,7 @@ func (p *Processor) processCreateAnnounceFromClientAPI(ctx context.Context, clie
 		return errors.New("boost was not parseable as *gtsmodel.Status")
 	}
 
-	if err := p.timelineStatus(ctx, boostWrapperStatus); err != nil {
+	if err := p.timelineAndNotifyStatus(ctx, boostWrapperStatus); err != nil {
 		return err
 	}
 
@@ -239,6 +237,21 @@ func (p *Processor) processUpdateAccountFromClientAPI(ctx context.Context, clien
 	}
 
 	return p.federateAccountUpdate(ctx, account, clientMsg.OriginAccount)
+}
+
+func (p *Processor) processUpdateReportFromClientAPI(ctx context.Context, clientMsg messages.FromClientAPI) error {
+	report, ok := clientMsg.GTSModel.(*gtsmodel.Report)
+	if !ok {
+		return errors.New("report was not parseable as *gtsmodel.Report")
+	}
+
+	if report.Account.IsRemote() {
+		// Report creator is a remote account,
+		// we shouldn't email or notify them.
+		return nil
+	}
+
+	return p.emailReportClosed(ctx, report)
 }
 
 func (p *Processor) processAcceptFollowFromClientAPI(ctx context.Context, clientMsg messages.FromClientAPI) error {
@@ -350,21 +363,24 @@ func (p *Processor) processReportAccountFromClientAPI(ctx context.Context, clien
 		return errors.New("report was not parseable as *gtsmodel.Report")
 	}
 
-	// TODO: in a separate PR, also email admin(s)
-
-	if !*report.Forwarded {
-		// nothing to do, don't federate the report
-		return nil
+	if *report.Forwarded {
+		if err := p.federateReport(ctx, report); err != nil {
+			return fmt.Errorf("processReportAccountFromClientAPI: error federating report: %w", err)
+		}
 	}
 
-	return p.federateReport(ctx, report)
+	if err := p.emailReport(ctx, report); err != nil {
+		return fmt.Errorf("processReportAccountFromClientAPI: error notifying report: %w", err)
+	}
+
+	return nil
 }
 
 // TODO: move all the below functions into federation.Federator
 
 func (p *Processor) federateAccountDelete(ctx context.Context, account *gtsmodel.Account) error {
-	// do nothing if this isn't our account
-	if account.Domain != "" {
+	// Do nothing if this isn't our activity.
+	if !account.IsLocal() {
 		return nil
 	}
 
@@ -429,8 +445,8 @@ func (p *Processor) federateStatus(ctx context.Context, status *gtsmodel.Status)
 		status.Account = statusAccount
 	}
 
-	// do nothing if this isn't our status
-	if status.Account.Domain != "" {
+	// Do nothing if this isn't our activity.
+	if !status.Account.IsLocal() {
 		return nil
 	}
 
@@ -462,8 +478,8 @@ func (p *Processor) federateStatusDelete(ctx context.Context, status *gtsmodel.S
 		status.Account = statusAccount
 	}
 
-	// do nothing if this isn't our status
-	if status.Account.Domain != "" {
+	// Do nothing if this isn't our activity.
+	if !status.Account.IsLocal() {
 		return nil
 	}
 
@@ -482,8 +498,8 @@ func (p *Processor) federateStatusDelete(ctx context.Context, status *gtsmodel.S
 }
 
 func (p *Processor) federateFollow(ctx context.Context, followRequest *gtsmodel.FollowRequest, originAccount *gtsmodel.Account, targetAccount *gtsmodel.Account) error {
-	// if both accounts are local there's nothing to do here
-	if originAccount.Domain == "" && targetAccount.Domain == "" {
+	// Do nothing if both accounts are local.
+	if originAccount.IsLocal() && targetAccount.IsLocal() {
 		return nil
 	}
 
@@ -504,8 +520,8 @@ func (p *Processor) federateFollow(ctx context.Context, followRequest *gtsmodel.
 }
 
 func (p *Processor) federateUnfollow(ctx context.Context, follow *gtsmodel.Follow, originAccount *gtsmodel.Account, targetAccount *gtsmodel.Account) error {
-	// if both accounts are local there's nothing to do here
-	if originAccount.Domain == "" && targetAccount.Domain == "" {
+	// Do nothing if both accounts are local.
+	if originAccount.IsLocal() && targetAccount.IsLocal() {
 		return nil
 	}
 
@@ -545,8 +561,8 @@ func (p *Processor) federateUnfollow(ctx context.Context, follow *gtsmodel.Follo
 }
 
 func (p *Processor) federateUnfave(ctx context.Context, fave *gtsmodel.StatusFave, originAccount *gtsmodel.Account, targetAccount *gtsmodel.Account) error {
-	// if both accounts are local there's nothing to do here
-	if originAccount.Domain == "" && targetAccount.Domain == "" {
+	// Do nothing if both accounts are local.
+	if originAccount.IsLocal() && targetAccount.IsLocal() {
 		return nil
 	}
 
@@ -584,8 +600,8 @@ func (p *Processor) federateUnfave(ctx context.Context, fave *gtsmodel.StatusFav
 }
 
 func (p *Processor) federateUnannounce(ctx context.Context, boost *gtsmodel.Status, originAccount *gtsmodel.Account, targetAccount *gtsmodel.Account) error {
-	if originAccount.Domain != "" {
-		// nothing to do here
+	// Do nothing if this isn't our activity.
+	if !originAccount.IsLocal() {
 		return nil
 	}
 
@@ -637,13 +653,9 @@ func (p *Processor) federateAcceptFollowRequest(ctx context.Context, follow *gts
 	}
 	targetAccount := follow.TargetAccount
 
-	// if target account isn't from our domain we shouldn't do anything
-	if targetAccount.Domain != "" {
-		return nil
-	}
-
-	// if both accounts are local there's nothing to do here
-	if originAccount.Domain == "" && targetAccount.Domain == "" {
+	// Do nothing if target account *isn't* local,
+	// or both origin + target *are* local.
+	if targetAccount.IsRemote() || originAccount.IsLocal() {
 		return nil
 	}
 
@@ -710,13 +722,9 @@ func (p *Processor) federateRejectFollowRequest(ctx context.Context, followReque
 	}
 	targetAccount := followRequest.TargetAccount
 
-	// if target account isn't from our domain we shouldn't do anything
-	if targetAccount.Domain != "" {
-		return nil
-	}
-
-	// if both accounts are local there's nothing to do here
-	if originAccount.Domain == "" && targetAccount.Domain == "" {
+	// Do nothing if target account *isn't* local,
+	// or both origin + target *are* local.
+	if targetAccount.IsRemote() || originAccount.IsLocal() {
 		return nil
 	}
 
@@ -766,8 +774,8 @@ func (p *Processor) federateRejectFollowRequest(ctx context.Context, followReque
 }
 
 func (p *Processor) federateFave(ctx context.Context, fave *gtsmodel.StatusFave, originAccount *gtsmodel.Account, targetAccount *gtsmodel.Account) error {
-	// if both accounts are local there's nothing to do here
-	if originAccount.Domain == "" && targetAccount.Domain == "" {
+	// Do nothing if both accounts are local.
+	if originAccount.IsLocal() && targetAccount.IsLocal() {
 		return nil
 	}
 
@@ -837,8 +845,8 @@ func (p *Processor) federateBlock(ctx context.Context, block *gtsmodel.Block) er
 		block.TargetAccount = blockTargetAccount
 	}
 
-	// if both accounts are local there's nothing to do here
-	if block.Account.Domain == "" && block.TargetAccount.Domain == "" {
+	// Do nothing if both accounts are local.
+	if block.Account.IsLocal() && block.TargetAccount.IsLocal() {
 		return nil
 	}
 
@@ -873,8 +881,8 @@ func (p *Processor) federateUnblock(ctx context.Context, block *gtsmodel.Block) 
 		block.TargetAccount = blockTargetAccount
 	}
 
-	// if both accounts are local there's nothing to do here
-	if block.Account.Domain == "" && block.TargetAccount.Domain == "" {
+	// Do nothing if both accounts are local.
+	if block.Account.IsLocal() && block.TargetAccount.IsLocal() {
 		return nil
 	}
 

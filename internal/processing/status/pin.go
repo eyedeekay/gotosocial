@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package status
 
@@ -39,40 +38,24 @@ const allowedPinnedCount = 10
 //   - Status belongs to requesting account.
 //   - Status is public, unlisted, or followers-only.
 //   - Status is not a boost.
-func (p *Processor) getPinnableStatus(ctx context.Context, targetStatusID string, requestingAccountID string) (*gtsmodel.Status, gtserror.WithCode) {
-	targetStatus, err := p.state.DB.GetStatusByID(ctx, targetStatusID)
-	if err != nil {
-		err = fmt.Errorf("error fetching status %s: %w", targetStatusID, err)
-		return nil, gtserror.NewErrorNotFound(err)
+func (p *Processor) getPinnableStatus(ctx context.Context, requestingAccount *gtsmodel.Account, targetStatusID string) (*gtsmodel.Status, gtserror.WithCode) {
+	targetStatus, errWithCode := p.getVisibleStatus(ctx, requestingAccount, targetStatusID)
+	if errWithCode != nil {
+		return nil, errWithCode
 	}
 
-	requestingAccount, err := p.state.DB.GetAccountByID(ctx, requestingAccountID)
-	if err != nil {
-		return nil, gtserror.NewErrorInternalError(err)
-	}
-
-	visible, err := p.filter.StatusVisible(ctx, targetStatus, requestingAccount)
-	if err != nil {
-		return nil, gtserror.NewErrorInternalError(err)
-	}
-
-	if !visible {
-		err = fmt.Errorf("status %s not visible to account %s", targetStatusID, requestingAccountID)
-		return nil, gtserror.NewErrorNotFound(err)
-	}
-
-	if targetStatus.AccountID != requestingAccountID {
-		err = fmt.Errorf("status %s does not belong to account %s", targetStatusID, requestingAccountID)
+	if targetStatus.AccountID != requestingAccount.ID {
+		err := fmt.Errorf("status %s does not belong to account %s", targetStatusID, requestingAccount.ID)
 		return nil, gtserror.NewErrorUnprocessableEntity(err, err.Error())
 	}
 
 	if targetStatus.Visibility == gtsmodel.VisibilityDirect {
-		err = errors.New("cannot pin direct messages")
+		err := errors.New("cannot pin direct messages")
 		return nil, gtserror.NewErrorUnprocessableEntity(err, err.Error())
 	}
 
 	if targetStatus.BoostOfID != "" {
-		err = errors.New("cannot pin boosts")
+		err := errors.New("cannot pin boosts")
 		return nil, gtserror.NewErrorUnprocessableEntity(err, err.Error())
 	}
 
@@ -90,7 +73,7 @@ func (p *Processor) getPinnableStatus(ctx context.Context, targetStatusID string
 //
 // If the conditions can't be met, then code 422 Unprocessable Entity will be returned.
 func (p *Processor) PinCreate(ctx context.Context, requestingAccount *gtsmodel.Account, targetStatusID string) (*apimodel.Status, gtserror.WithCode) {
-	targetStatus, errWithCode := p.getPinnableStatus(ctx, targetStatusID, requestingAccount.ID)
+	targetStatus, errWithCode := p.getPinnableStatus(ctx, requestingAccount, targetStatusID)
 	if errWithCode != nil {
 		return nil, errWithCode
 	}
@@ -115,12 +98,7 @@ func (p *Processor) PinCreate(ctx context.Context, requestingAccount *gtsmodel.A
 		return nil, gtserror.NewErrorInternalError(fmt.Errorf("db error pinning status: %w", err))
 	}
 
-	apiStatus, err := p.tc.StatusToAPIStatus(ctx, targetStatus, requestingAccount)
-	if err != nil {
-		return nil, gtserror.NewErrorInternalError(fmt.Errorf("error converting status %s to frontend representation: %w", targetStatus.ID, err))
-	}
-
-	return apiStatus, nil
+	return p.apiStatus(ctx, targetStatus, requestingAccount)
 }
 
 // PinRemove unpins the target status from the top of requestingAccount's profile, if possible.
@@ -135,7 +113,7 @@ func (p *Processor) PinCreate(ctx context.Context, requestingAccount *gtsmodel.A
 // Unlike with PinCreate, statuses that are already unpinned will not return 422, but just do
 // nothing and return the api model representation of the status, to conform to the masto API.
 func (p *Processor) PinRemove(ctx context.Context, requestingAccount *gtsmodel.Account, targetStatusID string) (*apimodel.Status, gtserror.WithCode) {
-	targetStatus, errWithCode := p.getPinnableStatus(ctx, targetStatusID, requestingAccount.ID)
+	targetStatus, errWithCode := p.getPinnableStatus(ctx, requestingAccount, targetStatusID)
 	if errWithCode != nil {
 		return nil, errWithCode
 	}
@@ -147,10 +125,5 @@ func (p *Processor) PinRemove(ctx context.Context, requestingAccount *gtsmodel.A
 		}
 	}
 
-	apiStatus, err := p.tc.StatusToAPIStatus(ctx, targetStatus, requestingAccount)
-	if err != nil {
-		return nil, gtserror.NewErrorInternalError(fmt.Errorf("error converting status %s to frontend representation: %w", targetStatus.ID, err))
-	}
-
-	return apiStatus, nil
+	return p.apiStatus(ctx, targetStatus, requestingAccount)
 }

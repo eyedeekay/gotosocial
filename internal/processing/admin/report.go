@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package admin
 
@@ -24,10 +23,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/superseriousbusiness/gotosocial/internal/ap"
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
 	"github.com/superseriousbusiness/gotosocial/internal/db"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
+	"github.com/superseriousbusiness/gotosocial/internal/messages"
 	"github.com/superseriousbusiness/gotosocial/internal/util"
 )
 
@@ -111,7 +112,10 @@ func (p *Processor) ReportGet(ctx context.Context, account *gtsmodel.Account, id
 	return apimodelReport, nil
 }
 
-// ReportResolve marks a report with the given id as resolved, and stores the provided actionTakenComment (if not null).
+// ReportResolve marks a report with the given id as resolved,
+// and stores the provided actionTakenComment (if not null).
+// If the report creator is from this instance, an email will
+// be sent to them to let them know that the report is resolved.
 func (p *Processor) ReportResolve(ctx context.Context, account *gtsmodel.Account, id string, actionTakenComment *string) (*apimodel.AdminReport, gtserror.WithCode) {
 	report, err := p.state.DB.GetReportByID(ctx, id)
 	if err != nil {
@@ -138,6 +142,15 @@ func (p *Processor) ReportResolve(ctx context.Context, account *gtsmodel.Account
 	if err != nil {
 		return nil, gtserror.NewErrorInternalError(err)
 	}
+
+	// Process side effects of closing the report.
+	p.state.Workers.EnqueueClientAPI(ctx, messages.FromClientAPI{
+		APObjectType:   ap.ActivityFlag,
+		APActivityType: ap.ActivityUpdate,
+		GTSModel:       report,
+		OriginAccount:  account,
+		TargetAccount:  report.Account,
+	})
 
 	apimodelReport, err := p.tc.ReportToAdminAPIReport(ctx, updatedReport, account)
 	if err != nil {

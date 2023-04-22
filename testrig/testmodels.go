@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package testrig
 
@@ -1844,6 +1843,15 @@ func NewTestNotifications() map[string]*gtsmodel.Notification {
 			TargetAccountID:  "01F8MH1H7YV1Z7D2C8K2730QBF",
 			OriginAccountID:  "01F8MH17FWEB39HZJ76B6VXSKF",
 			StatusID:         "01F8MHAMCHF6Y650WCRSCP4WMY",
+			Read:             FalseBool(),
+		},
+		"local_account_2_like": {
+			ID:               "01GTS6PRPXJYZBPFFQ56PP0XR8",
+			NotificationType: gtsmodel.NotificationFave,
+			CreatedAt:        TimeMustParse("2022-01-13T12:45:01+02:00"),
+			TargetAccountID:  "01F8MH17FWEB39HZJ76B6VXSKF",
+			OriginAccountID:  "01F8MH5NBDF2MV7CTC4Q5128HF",
+			StatusID:         "01F8MH75CBF9JFX4ZAD54N0W0R",
 			Read:             FalseBool(),
 		},
 	}

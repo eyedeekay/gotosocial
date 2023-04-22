@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package dereferencing
 
@@ -223,14 +222,31 @@ func (d *deref) enrichAccount(ctx context.Context, requestUser string, uri *url.
 	if account.Username == "" {
 		// No username was provided, so no webfinger was attempted earlier.
 		//
-		// Now we have a username we can attempt it, this ensures up-to-date accountdomain info.
-		accDomain, _, err := d.fingerRemoteAccount(ctx, transport, latestAcc.Username, uri.Host)
+		// Now we have a username we can attempt again, to ensure up-to-date
+		// accountDomain info. For this final attempt we should use the domain
+		// of the ID of the dereffed account, rather than the URI we were given.
+		//
+		// This avoids cases where we were given a URI like
+		// https://example.org/@someone@somewhere.else and we've been redirected
+		// from example.org to somewhere.else: we want to take somewhere.else
+		// as the accountDomain then, not the example.org we were redirected from.
 
-		switch {
-		case err != nil:
-			log.Errorf(ctx, "error webfingering[2] remote account %s@%s: %v", latestAcc.Username, uri.Host, err)
+		// Assume the host from the returned ActivityPub representation.
+		idProp := apubAcc.GetJSONLDId()
+		if idProp == nil || !idProp.IsIRI() {
+			return nil, errors.New("enrichAccount: no id property found on person, or id was not an iri")
+		}
+		accHost := idProp.GetIRI().Host
 
-		case err == nil:
+		accDomain, _, err := d.fingerRemoteAccount(ctx, transport, latestAcc.Username, accHost)
+		if err != nil {
+			// We still couldn't webfinger the account, so we're not certain
+			// what the accountDomain actually is. Still, we can make a solid
+			// guess that it's the Host of the ActivityPub URI of the account.
+			// If we're wrong, we can just try again in a couple days.
+			log.Errorf(ctx, "error webfingering[2] remote account %s@%s: %v", latestAcc.Username, accHost, err)
+			latestAcc.Domain = accHost
+		} else {
 			// Update account with latest info.
 			latestAcc.Domain = accDomain
 		}
@@ -341,39 +357,13 @@ func (d *deref) enrichAccount(ctx context.Context, requestUser string, uri *url.
 
 // dereferenceAccountable calls remoteAccountID with a GET request, and tries to parse whatever
 // it finds as something that an account model can be constructed out of.
-//
-// Will work for Person, Application, or Service models.
 func (d *deref) dereferenceAccountable(ctx context.Context, transport transport.Transport, remoteAccountID *url.URL) (ap.Accountable, error) {
 	b, err := transport.Dereference(ctx, remoteAccountID)
 	if err != nil {
-		return nil, fmt.Errorf("DereferenceAccountable: error deferencing %s: %w", remoteAccountID.String(), err)
+		return nil, fmt.Errorf("dereferenceAccountable: error deferencing %s: %w", remoteAccountID.String(), err)
 	}
 
-	m := make(map[string]interface{})
-	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, fmt.Errorf("DereferenceAccountable: error unmarshalling bytes into json: %w", err)
-	}
-
-	t, err := streams.ToType(ctx, m)
-	if err != nil {
-		return nil, fmt.Errorf("DereferenceAccountable: error resolving json into ap vocab type: %w", err)
-	}
-
-	//nolint:forcetypeassert
-	switch t.GetTypeName() {
-	case ap.ActorApplication:
-		return t.(vocab.ActivityStreamsApplication), nil
-	case ap.ActorGroup:
-		return t.(vocab.ActivityStreamsGroup), nil
-	case ap.ActorOrganization:
-		return t.(vocab.ActivityStreamsOrganization), nil
-	case ap.ActorPerson:
-		return t.(vocab.ActivityStreamsPerson), nil
-	case ap.ActorService:
-		return t.(vocab.ActivityStreamsService), nil
-	}
-
-	return nil, newErrWrongType(fmt.Errorf("DereferenceAccountable: type name %s not supported as Accountable", t.GetTypeName()))
+	return ap.ResolveAccountable(ctx, b)
 }
 
 func (d *deref) fetchRemoteAccountAvatar(ctx context.Context, tsport transport.Transport, avatarURL string, accountID string) (string, error) {

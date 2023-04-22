@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package bundb
 
@@ -98,6 +97,20 @@ func (i *instanceDB) CountInstanceDomains(ctx context.Context, domain string) (i
 	return count, nil
 }
 
+func (i *instanceDB) GetInstance(ctx context.Context, domain string) (*gtsmodel.Instance, db.Error) {
+	instance := &gtsmodel.Instance{}
+
+	if err := i.conn.
+		NewSelect().
+		Model(instance).
+		Where("? = ?", bun.Ident("instance.domain"), domain).
+		Scan(ctx); err != nil {
+		return nil, i.conn.ProcessError(err)
+	}
+
+	return instance, nil
+}
+
 func (i *instanceDB) GetInstancePeers(ctx context.Context, includeSuspended bool) ([]*gtsmodel.Instance, db.Error) {
 	instances := []*gtsmodel.Instance{}
 
@@ -142,4 +155,35 @@ func (i *instanceDB) GetInstanceAccounts(ctx context.Context, domain string, max
 	}
 
 	return accounts, nil
+}
+
+func (i *instanceDB) GetInstanceModeratorAddresses(ctx context.Context) ([]string, db.Error) {
+	addresses := []string{}
+
+	// Select email addresses of approved, confirmed,
+	// and enabled moderators or admins.
+
+	q := i.conn.
+		NewSelect().
+		TableExpr("? AS ?", bun.Ident("users"), bun.Ident("user")).
+		Column("user.email").
+		Where("? = ?", bun.Ident("user.approved"), true).
+		Where("? IS NOT NULL", bun.Ident("user.confirmed_at")).
+		Where("? = ?", bun.Ident("user.disabled"), false).
+		WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.
+				Where("? = ?", bun.Ident("user.moderator"), true).
+				WhereOr("? = ?", bun.Ident("user.admin"), true)
+		}).
+		OrderExpr("? ASC", bun.Ident("user.email"))
+
+	if err := q.Scan(ctx, &addresses); err != nil {
+		return nil, i.conn.ProcessError(err)
+	}
+
+	if len(addresses) == 0 {
+		return nil, db.ErrNoEntries
+	}
+
+	return addresses, nil
 }

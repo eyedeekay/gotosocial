@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package config
 
@@ -128,11 +127,12 @@ type Configuration struct {
 	OIDCLinkExisting     bool     `name:"oidc-link-existing" usage:"link existing user accounts to OIDC logins based on the stored email value"`
 	OIDCAdminGroups      []string `name:"oidc-admin-groups" usage:"Membership of one of the listed groups makes someone a GtS admin"`
 
-	SMTPHost     string `name:"smtp-host" usage:"Host of the smtp server. Eg., 'smtp.eu.mailgun.org'"`
-	SMTPPort     int    `name:"smtp-port" usage:"Port of the smtp server. Eg., 587"`
-	SMTPUsername string `name:"smtp-username" usage:"Username to authenticate with the smtp server as. Eg., 'postmaster@mail.example.org'"`
-	SMTPPassword string `name:"smtp-password" usage:"Password to pass to the smtp server."`
-	SMTPFrom     string `name:"smtp-from" usage:"Address to use as the 'from' field of the email. Eg., 'gotosocial@example.org'"`
+	SMTPHost               string `name:"smtp-host" usage:"Host of the smtp server. Eg., 'smtp.eu.mailgun.org'"`
+	SMTPPort               int    `name:"smtp-port" usage:"Port of the smtp server. Eg., 587"`
+	SMTPUsername           string `name:"smtp-username" usage:"Username to authenticate with the smtp server as. Eg., 'postmaster@mail.example.org'"`
+	SMTPPassword           string `name:"smtp-password" usage:"Password to pass to the smtp server."`
+	SMTPFrom               string `name:"smtp-from" usage:"Address to use as the 'from' field of the email. Eg., 'gotosocial@example.org'"`
+	SMTPDiscloseRecipients bool   `name:"smtp-disclose-recipients" usage:"If true, email notifications sent to multiple recipients will be To'd to every recipient at once. If false, recipients will not be disclosed"`
 
 	SyslogEnabled  bool   `name:"syslog-enabled" usage:"Enable the syslog logging hook. Logs will be mirrored to the configured destination."`
 	SyslogProtocol string `name:"syslog-protocol" usage:"Protocol to use when directing logs to syslog. Leave empty to connect to local syslog."`
@@ -158,6 +158,10 @@ type Configuration struct {
 
 type CacheConfiguration struct {
 	GTS GTSCacheConfiguration `name:"gts"`
+
+	VisibilityMaxSize   int           `name:"visibility-max-size"`
+	VisibilityTTL       time.Duration `name:"visibility-ttl"`
+	VisibilitySweepFreq time.Duration `name:"visibility-sweep-freq"`
 }
 
 type GTSCacheConfiguration struct {
@@ -181,6 +185,14 @@ type GTSCacheConfiguration struct {
 	EmojiCategoryTTL       time.Duration `name:"emoji-category-ttl"`
 	EmojiCategorySweepFreq time.Duration `name:"emoji-category-sweep-freq"`
 
+	FollowMaxSize   int           `name:"follow-max-size"`
+	FollowTTL       time.Duration `name:"follow-ttl"`
+	FollowSweepFreq time.Duration `name:"follow-sweep-freq"`
+
+	FollowRequestMaxSize   int           `name:"follow-request-max-size"`
+	FollowRequestTTL       time.Duration `name:"follow-request-ttl"`
+	FollowRequestSweepFreq time.Duration `name:"follow-request-sweep-freq"`
+
 	MediaMaxSize   int           `name:"media-max-size"`
 	MediaTTL       time.Duration `name:"media-ttl"`
 	MediaSweepFreq time.Duration `name:"media-sweep-freq"`
@@ -200,6 +212,10 @@ type GTSCacheConfiguration struct {
 	StatusMaxSize   int           `name:"status-max-size"`
 	StatusTTL       time.Duration `name:"status-ttl"`
 	StatusSweepFreq time.Duration `name:"status-sweep-freq"`
+
+	StatusFaveMaxSize   int           `name:"status-fave-max-size"`
+	StatusFaveTTL       time.Duration `name:"status-fave-ttl"`
+	StatusFaveSweepFreq time.Duration `name:"status-fave-sweep-freq"`
 
 	TombstoneMaxSize   int           `name:"tombstone-max-size"`
 	TombstoneTTL       time.Duration `name:"tombstone-ttl"`

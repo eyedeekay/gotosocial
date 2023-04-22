@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package text
 
@@ -23,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/superseriousbusiness/gotosocial/internal/db"
+	"github.com/superseriousbusiness/gotosocial/internal/gtscontext"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
 	"github.com/superseriousbusiness/gotosocial/internal/util"
 	"golang.org/x/text/unicode/norm"
@@ -38,15 +38,15 @@ const (
 
 // replaceMention takes a string in the form @username@domain.com or @localusername
 func (r *customRenderer) replaceMention(text string) string {
-	menchie, err := r.parseMention(r.ctx, text, r.accountID, r.statusID)
+	mention, err := r.parseMention(r.ctx, text, r.accountID, r.statusID)
 	if err != nil {
-		log.Errorf(nil, "error parsing mention %s from status: %s", text, err)
+		log.Errorf(r.ctx, "error parsing mention %s from status: %s", text, err)
 		return text
 	}
 
 	if r.statusID != "" {
-		if err := r.f.db.Put(r.ctx, menchie); err != nil {
-			log.Errorf(nil, "error putting mention in db: %s", err)
+		if err := r.f.db.PutMention(r.ctx, mention); err != nil {
+			log.Errorf(r.ctx, "error putting mention in db: %s", err)
 			return text
 		}
 	}
@@ -54,27 +54,29 @@ func (r *customRenderer) replaceMention(text string) string {
 	// only append if it's not been listed yet
 	listed := false
 	for _, m := range r.result.Mentions {
-		if menchie.ID == m.ID {
+		if mention.ID == m.ID {
 			listed = true
 			break
 		}
 	}
 	if !listed {
-		r.result.Mentions = append(r.result.Mentions, menchie)
+		r.result.Mentions = append(r.result.Mentions, mention)
 	}
 
-	// make sure we have an account attached to this mention
-	if menchie.TargetAccount == nil {
-		a, err := r.f.db.GetAccountByID(r.ctx, menchie.TargetAccountID)
+	if mention.TargetAccount == nil {
+		// Fetch mention target account if not yet populated.
+		mention.TargetAccount, err = r.f.db.GetAccountByID(
+			gtscontext.SetBarebones(r.ctx),
+			mention.TargetAccountID,
+		)
 		if err != nil {
-			log.Errorf(nil, "error getting account with id %s from the db: %s", menchie.TargetAccountID, err)
+			log.Errorf(r.ctx, "error populating mention target account: %v", err)
 			return text
 		}
-		menchie.TargetAccount = a
 	}
 
 	// The mention's target is our target
-	targetAccount := menchie.TargetAccount
+	targetAccount := mention.TargetAccount
 
 	var b strings.Builder
 
@@ -106,7 +108,7 @@ func (r *customRenderer) replaceHashtag(text string) string {
 
 	tag, err := r.f.db.TagStringToTag(r.ctx, normalized, r.accountID)
 	if err != nil {
-		log.Errorf(nil, "error generating hashtags from status: %s", err)
+		log.Errorf(r.ctx, "error generating hashtags from status: %s", err)
 		return text
 	}
 
@@ -122,7 +124,7 @@ func (r *customRenderer) replaceHashtag(text string) string {
 		err = r.f.db.Put(r.ctx, tag)
 		if err != nil {
 			if !errors.Is(err, db.ErrAlreadyExists) {
-				log.Errorf(nil, "error putting tags in db: %s", err)
+				log.Errorf(r.ctx, "error putting tags in db: %s", err)
 				return text
 			}
 		}

@@ -1,6 +1,7 @@
 /*
 	GoToSocial
-	Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
+	Copyright (C) GoToSocial Authors admin@gotosocial.org
+	SPDX-License-Identifier: AGPL-3.0-or-later
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published by
@@ -21,13 +22,11 @@
 const React = require("react");
 const { Switch, Route } = require("wouter");
 
-const baseUrl = `/settings/admin/federation`;
-
 const InstanceOverview = require("./overview");
 const InstanceDetail = require("./detail");
 const InstanceImportExport = require("./import-export");
 
-module.exports = function Federation({ }) {
+module.exports = function Federation({ baseUrl }) {
 	return (
 		<Switch>
 			<Route path={`${baseUrl}/import-export/:list?`}>

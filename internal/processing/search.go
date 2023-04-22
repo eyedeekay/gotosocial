@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package processing
 
@@ -26,6 +25,7 @@ import (
 	"strings"
 
 	"codeberg.org/gruf/go-kv"
+	"github.com/superseriousbusiness/gotosocial/internal/ap"
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
 	"github.com/superseriousbusiness/gotosocial/internal/config"
 	"github.com/superseriousbusiness/gotosocial/internal/db"
@@ -132,9 +132,10 @@ func (p *Processor) SearchGet(ctx context.Context, authed *oauth.Auth, search *a
 				// check if it's a status...
 				foundStatus, err := p.searchStatusByURI(ctx, authed, uri)
 				if err != nil {
+					// Check for semi-expected error types.
 					var (
 						errNotRetrievable *dereferencing.ErrNotRetrievable
-						errWrongType      *dereferencing.ErrWrongType
+						errWrongType      *ap.ErrWrongType
 					)
 					if !errors.As(err, &errNotRetrievable) && !errors.As(err, &errWrongType) {
 						return nil, gtserror.NewErrorInternalError(fmt.Errorf("error looking up status: %w", err))
@@ -149,9 +150,10 @@ func (p *Processor) SearchGet(ctx context.Context, authed *oauth.Auth, search *a
 				if !foundOne {
 					foundAccount, err := p.searchAccountByURI(ctx, authed, uri, search.Resolve)
 					if err != nil {
+						// Check for semi-expected error types.
 						var (
 							errNotRetrievable *dereferencing.ErrNotRetrievable
-							errWrongType      *dereferencing.ErrWrongType
+							errWrongType      *ap.ErrWrongType
 						)
 						if !errors.As(err, &errNotRetrievable) && !errors.As(err, &errWrongType) {
 							return nil, gtserror.NewErrorInternalError(fmt.Errorf("error looking up account: %w", err))
@@ -178,7 +180,7 @@ func (p *Processor) SearchGet(ctx context.Context, authed *oauth.Auth, search *a
 	*/
 	for _, foundAccount := range foundAccounts {
 		// make sure there's no block in either direction between the account and the requester
-		blocked, err := p.state.DB.IsBlocked(ctx, authed.Account.ID, foundAccount.ID, true)
+		blocked, err := p.state.DB.IsEitherBlocked(ctx, authed.Account.ID, foundAccount.ID)
 		if err != nil {
 			err = fmt.Errorf("SearchGet: error checking block between %s and %s: %s", authed.Account.ID, foundAccount.ID, err)
 			return nil, gtserror.NewErrorInternalError(err)
@@ -200,7 +202,7 @@ func (p *Processor) SearchGet(ctx context.Context, authed *oauth.Auth, search *a
 
 	for _, foundStatus := range foundStatuses {
 		// make sure each found status is visible to the requester
-		visible, err := p.filter.StatusVisible(ctx, foundStatus, authed.Account)
+		visible, err := p.filter.StatusVisible(ctx, authed.Account, foundStatus)
 		if err != nil {
 			err = fmt.Errorf("SearchGet: error checking visibility of status %s for account %s: %s", foundStatus.ID, authed.Account.ID, err)
 			return nil, gtserror.NewErrorInternalError(err)

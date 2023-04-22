@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package federatingdb
 
@@ -263,7 +262,7 @@ func (f *federatingDB) activityFollow(ctx context.Context, asType vocab.Type, re
 
 	followRequest.ID = id.NewULID()
 
-	if err := f.state.DB.Put(ctx, followRequest); err != nil {
+	if err := f.state.DB.PutFollowRequest(ctx, followRequest); err != nil {
 		return fmt.Errorf("activityFollow: database error inserting follow request: %s", err)
 	}
 
@@ -289,13 +288,19 @@ func (f *federatingDB) activityLike(ctx context.Context, asType vocab.Type, rece
 
 	fave, err := f.typeConverter.ASLikeToFave(ctx, like)
 	if err != nil {
-		return fmt.Errorf("activityLike: could not convert Like to fave: %s", err)
+		return fmt.Errorf("activityLike: could not convert Like to fave: %w", err)
 	}
 
 	fave.ID = id.NewULID()
 
-	if err := f.state.DB.Put(ctx, fave); err != nil {
-		return fmt.Errorf("activityLike: database error inserting fave: %s", err)
+	if err := f.state.DB.PutStatusFave(ctx, fave); err != nil {
+		if errors.Is(err, db.ErrAlreadyExists) {
+			// The Like already exists in the database, which
+			// means we've already handled side effects. We can
+			// just return nil here and be done with it.
+			return nil
+		}
+		return fmt.Errorf("activityLike: database error inserting fave: %w", err)
 	}
 
 	f.state.Workers.EnqueueFederator(ctx, messages.FromFederator{

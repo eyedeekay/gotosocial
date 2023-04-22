@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package processing
 
@@ -48,7 +47,8 @@ type Processor struct {
 	mediaManager    mm.Manager
 	statusTimelines timeline.Manager
 	state           *state.State
-	filter          visibility.Filter
+	emailSender     email.Sender
+	filter          *visibility.Filter
 
 	/*
 		SUB-PROCESSORS
@@ -107,7 +107,7 @@ func NewProcessor(
 ) *Processor {
 	parseMentionFunc := GetParseMentionFunc(state.DB, federator)
 
-	filter := visibility.NewFilter(state.DB)
+	filter := visibility.NewFilter(state)
 
 	processor := &Processor{
 		federator:    federator,
@@ -120,37 +120,44 @@ func NewProcessor(
 			StatusPrepareFunction(state.DB, tc),
 			StatusSkipInsertFunction(),
 		),
-		state:  state,
-		filter: filter,
+		state:       state,
+		filter:      filter,
+		emailSender: emailSender,
 	}
 
 	// sub processors
-	processor.account = account.New(state, tc, mediaManager, oauthServer, federator, parseMentionFunc)
-	processor.admin = admin.New(state, tc, mediaManager, federator.TransportController())
-	processor.fedi = fedi.New(state, tc, federator)
+	processor.account = account.New(state, tc, mediaManager, oauthServer, federator, filter, parseMentionFunc)
+	processor.admin = admin.New(state, tc, mediaManager, federator.TransportController(), emailSender)
+	processor.fedi = fedi.New(state, tc, federator, filter)
 	processor.media = media.New(state, tc, mediaManager, federator.TransportController())
 	processor.report = report.New(state, tc)
-	processor.status = status.New(state, tc, parseMentionFunc)
+	processor.status = status.New(state, tc, filter, parseMentionFunc)
 	processor.stream = stream.New(state, oauthServer)
 	processor.user = user.New(state, emailSender)
 
 	return processor
 }
 
-func (p *Processor) EnqueueClientAPI(ctx context.Context, msg messages.FromClientAPI) {
-	log.WithContext(ctx).WithField("msg", msg).Trace("enqueuing client API")
+func (p *Processor) EnqueueClientAPI(ctx context.Context, msgs ...messages.FromClientAPI) {
+	log.Trace(ctx, "enqueuing")
 	_ = p.state.Workers.ClientAPI.MustEnqueueCtx(ctx, func(ctx context.Context) {
-		if err := p.ProcessFromClientAPI(ctx, msg); err != nil {
-			log.Errorf(ctx, "error processing client API message: %v", err)
+		for _, msg := range msgs {
+			log.Trace(ctx, "processing: %+v", msg)
+			if err := p.ProcessFromClientAPI(ctx, msg); err != nil {
+				log.Errorf(ctx, "error processing client API message: %v", err)
+			}
 		}
 	})
 }
 
-func (p *Processor) EnqueueFederator(ctx context.Context, msg messages.FromFederator) {
-	log.WithContext(ctx).WithField("msg", msg).Trace("enqueuing federator")
+func (p *Processor) EnqueueFederator(ctx context.Context, msgs ...messages.FromFederator) {
+	log.Trace(ctx, "enqueuing")
 	_ = p.state.Workers.Federator.MustEnqueueCtx(ctx, func(ctx context.Context) {
-		if err := p.ProcessFromFederator(ctx, msg); err != nil {
-			log.Errorf(ctx, "error processing federator message: %v", err)
+		for _, msg := range msgs {
+			log.Trace(ctx, "processing: %+v", msg)
+			if err := p.ProcessFromFederator(ctx, msg); err != nil {
+				log.Errorf(ctx, "error processing federator message: %v", err)
+			}
 		}
 	})
 }

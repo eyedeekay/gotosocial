@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package status
 
@@ -56,12 +55,11 @@ func (p *Processor) BoostCreate(ctx context.Context, requestingAccount *gtsmodel
 		targetStatus = targetStatus.BoostOf
 	}
 
-	boostable, err := p.filter.StatusBoostable(ctx, targetStatus, requestingAccount)
+	boostable, err := p.filter.StatusBoostable(ctx, requestingAccount, targetStatus)
 	if err != nil {
 		return nil, gtserror.NewErrorNotFound(fmt.Errorf("error seeing if status %s is boostable: %s", targetStatus.ID, err))
-	}
-	if !boostable {
-		return nil, gtserror.NewErrorForbidden(errors.New("status is not boostable"))
+	} else if !boostable {
+		return nil, gtserror.NewErrorNotFound(errors.New("status is not boostable"))
 	}
 
 	// it's visible! it's boostable! so let's boost the FUCK out of it
@@ -87,13 +85,7 @@ func (p *Processor) BoostCreate(ctx context.Context, requestingAccount *gtsmodel
 		TargetAccount:  targetStatus.Account,
 	})
 
-	// return the frontend representation of the new status to the submitter
-	apiStatus, err := p.tc.StatusToAPIStatus(ctx, boostWrapperStatus, requestingAccount)
-	if err != nil {
-		return nil, gtserror.NewErrorInternalError(fmt.Errorf("error converting status %s to frontend representation: %s", targetStatus.ID, err))
-	}
-
-	return apiStatus, nil
+	return p.apiStatus(ctx, boostWrapperStatus, requestingAccount)
 }
 
 // BoostRemove processes the unboost/unreblog of a given status, returning the status if all is well.
@@ -106,7 +98,7 @@ func (p *Processor) BoostRemove(ctx context.Context, requestingAccount *gtsmodel
 		return nil, gtserror.NewErrorNotFound(fmt.Errorf("no status owner for status %s", targetStatusID))
 	}
 
-	visible, err := p.filter.StatusVisible(ctx, targetStatus, requestingAccount)
+	visible, err := p.filter.StatusVisible(ctx, requestingAccount, targetStatus)
 	if err != nil {
 		return nil, gtserror.NewErrorNotFound(fmt.Errorf("error seeing if status %s is visible: %s", targetStatus.ID, err))
 	}
@@ -160,12 +152,7 @@ func (p *Processor) BoostRemove(ctx context.Context, requestingAccount *gtsmodel
 		})
 	}
 
-	apiStatus, err := p.tc.StatusToAPIStatus(ctx, targetStatus, requestingAccount)
-	if err != nil {
-		return nil, gtserror.NewErrorInternalError(fmt.Errorf("error converting status %s to frontend representation: %s", targetStatus.ID, err))
-	}
-
-	return apiStatus, nil
+	return p.apiStatus(ctx, targetStatus, requestingAccount)
 }
 
 // StatusBoostedBy returns a slice of accounts that have boosted the given status, filtered according to privacy settings.
@@ -192,7 +179,7 @@ func (p *Processor) StatusBoostedBy(ctx context.Context, requestingAccount *gtsm
 		targetStatus = boostedStatus
 	}
 
-	visible, err := p.filter.StatusVisible(ctx, targetStatus, requestingAccount)
+	visible, err := p.filter.StatusVisible(ctx, requestingAccount, targetStatus)
 	if err != nil {
 		err = fmt.Errorf("BoostedBy: error seeing if status %s is visible: %s", targetStatus.ID, err)
 		return nil, gtserror.NewErrorNotFound(err)
@@ -211,7 +198,7 @@ func (p *Processor) StatusBoostedBy(ctx context.Context, requestingAccount *gtsm
 	// filter account IDs so the user doesn't see accounts they blocked or which blocked them
 	accountIDs := make([]string, 0, len(statusReblogs))
 	for _, s := range statusReblogs {
-		blocked, err := p.state.DB.IsBlocked(ctx, requestingAccount.ID, s.AccountID, true)
+		blocked, err := p.state.DB.IsEitherBlocked(ctx, requestingAccount.ID, s.AccountID)
 		if err != nil {
 			err = fmt.Errorf("BoostedBy: error checking blocks: %s", err)
 			return nil, gtserror.NewErrorNotFound(err)

@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package processing_test
 
@@ -158,6 +157,79 @@ func (suite *FromClientAPITestSuite) TestProcessStatusDelete() {
 	// the boost should no longer be in the database
 	_, err = suite.db.GetStatusByID(ctx, boostOfDeletedStatus.ID)
 	suite.ErrorIs(err, db.ErrNoEntries)
+}
+
+func (suite *FromClientAPITestSuite) TestProcessNewStatusWithNotification() {
+	ctx := context.Background()
+	postingAccount := suite.testAccounts["admin_account"]
+	receivingAccount := suite.testAccounts["local_account_1"]
+
+	// Update the follow from receiving account -> posting account so
+	// that receiving account wants notifs when posting account posts.
+	follow := &gtsmodel.Follow{}
+	*follow = *suite.testFollows["local_account_1_admin_account"]
+	follow.Notify = testrig.TrueBool()
+	if err := suite.db.UpdateFollow(ctx, follow); err != nil {
+		suite.FailNow(err.Error())
+	}
+
+	// Make a new status from admin account.
+	newStatus := &gtsmodel.Status{
+		ID:                       "01FN4B2F88TF9676DYNXWE1WSS",
+		URI:                      "http://localhost:8080/users/admin/statuses/01FN4B2F88TF9676DYNXWE1WSS",
+		URL:                      "http://localhost:8080/@admin/statuses/01FN4B2F88TF9676DYNXWE1WSS",
+		Content:                  "this status should create a notification",
+		AttachmentIDs:            []string{},
+		TagIDs:                   []string{},
+		MentionIDs:               []string{},
+		EmojiIDs:                 []string{},
+		CreatedAt:                testrig.TimeMustParse("2021-10-20T11:36:45Z"),
+		UpdatedAt:                testrig.TimeMustParse("2021-10-20T11:36:45Z"),
+		Local:                    testrig.TrueBool(),
+		AccountURI:               "http://localhost:8080/users/admin",
+		AccountID:                "01F8MH17FWEB39HZJ76B6VXSKF",
+		InReplyToID:              "",
+		BoostOfID:                "",
+		ContentWarning:           "",
+		Visibility:               gtsmodel.VisibilityFollowersOnly,
+		Sensitive:                testrig.FalseBool(),
+		Language:                 "en",
+		CreatedWithApplicationID: "01F8MGXQRHYF5QPMTMXP78QC2F",
+		Federated:                testrig.FalseBool(),
+		Boostable:                testrig.TrueBool(),
+		Replyable:                testrig.TrueBool(),
+		Likeable:                 testrig.TrueBool(),
+		ActivityStreamsType:      ap.ObjectNote,
+	}
+
+	// Put the status in the db first, to mimic what
+	// would have already happened earlier up the flow.
+	err := suite.db.PutStatus(ctx, newStatus)
+	suite.NoError(err)
+
+	// Process the new status.
+	if err := suite.processor.ProcessFromClientAPI(ctx, messages.FromClientAPI{
+		APObjectType:   ap.ObjectNote,
+		APActivityType: ap.ActivityCreate,
+		GTSModel:       newStatus,
+		OriginAccount:  postingAccount,
+	}); err != nil {
+		suite.FailNow(err.Error())
+	}
+
+	// Wait for a notification to appear for the status.
+	if !testrig.WaitFor(func() bool {
+		_, err := suite.db.GetNotification(
+			ctx,
+			gtsmodel.NotificationStatus,
+			receivingAccount.ID,
+			postingAccount.ID,
+			newStatus.ID,
+		)
+		return err == nil
+	}) {
+		suite.FailNow("timed out waiting for new status notification")
+	}
 }
 
 func TestFromClientAPITestSuite(t *testing.T) {

@@ -1,425 +1,329 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package processing
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
-	"sync"
 
+	"github.com/superseriousbusiness/gotosocial/internal/config"
 	"github.com/superseriousbusiness/gotosocial/internal/db"
+	"github.com/superseriousbusiness/gotosocial/internal/email"
+	"github.com/superseriousbusiness/gotosocial/internal/gtscontext"
+	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/id"
 	"github.com/superseriousbusiness/gotosocial/internal/stream"
 )
 
-func (p *Processor) notifyStatus(ctx context.Context, status *gtsmodel.Status) error {
-	// if there are no mentions in this status then just bail
-	if len(status.MentionIDs) == 0 {
-		return nil
+// timelineAndNotifyStatus processes the given new status and inserts it into
+// the HOME timelines of accounts that follow the status author. It will also
+// handle notifications for any mentions attached to the account, and also
+// notifications for any local accounts that want a notif when this account posts.
+func (p *Processor) timelineAndNotifyStatus(ctx context.Context, status *gtsmodel.Status) error {
+	// Ensure status fully populated; including account, mentions, etc.
+	if err := p.state.DB.PopulateStatus(ctx, status); err != nil {
+		return fmt.Errorf("timelineAndNotifyStatus: error populating status with id %s: %w", status.ID, err)
 	}
 
-	if status.Mentions == nil {
-		// there are mentions but they're not fully populated on the status yet so do this
-		menchies, err := p.state.DB.GetMentions(ctx, status.MentionIDs)
-		if err != nil {
-			return fmt.Errorf("notifyStatus: error getting mentions for status %s from the db: %s", status.ID, err)
-		}
-		status.Mentions = menchies
+	// Get local followers of the account that posted the status.
+	follows, err := p.state.DB.GetAccountLocalFollowers(ctx, status.AccountID)
+	if err != nil {
+		return fmt.Errorf("timelineAndNotifyStatus: error getting local followers for account id %s: %w", status.AccountID, err)
 	}
 
-	// now we have mentions as full gtsmodel.Mention structs on the status we can continue
-	for _, m := range status.Mentions {
-		// make sure this is a local account, otherwise we don't need to create a notification for it
-		if m.TargetAccount == nil {
-			a, err := p.state.DB.GetAccountByID(ctx, m.TargetAccountID)
-			if err != nil {
-				// we don't have the account or there's been an error
-				return fmt.Errorf("notifyStatus: error getting account with id %s from the db: %s", m.TargetAccountID, err)
-			}
-			m.TargetAccount = a
-		}
-		if m.TargetAccount.Domain != "" {
-			// not a local account so skip it
-			continue
-		}
+	// If the poster is also local, add a fake entry for them
+	// so they can see their own status in their timeline.
+	if status.Account.IsLocal() {
+		follows = append(follows, &gtsmodel.Follow{
+			AccountID:   status.AccountID,
+			Account:     status.Account,
+			Notify:      func() *bool { b := false; return &b }(), // Account shouldn't notify itself.
+			ShowReblogs: func() *bool { b := true; return &b }(),  // Account should show own reblogs.
+		})
+	}
 
-		// make sure a notif doesn't already exist for this mention
-		if err := p.state.DB.GetWhere(ctx, []db.Where{
-			{Key: "notification_type", Value: gtsmodel.NotificationMention},
-			{Key: "target_account_id", Value: m.TargetAccountID},
-			{Key: "origin_account_id", Value: m.OriginAccountID},
-			{Key: "status_id", Value: m.StatusID},
-		}, &gtsmodel.Notification{}); err == nil {
-			// notification exists already so just continue
-			continue
-		} else if err != db.ErrNoEntries {
-			// there's a real error in the db
-			return fmt.Errorf("notifyStatus: error checking existence of notification for mention with id %s : %s", m.ID, err)
-		}
+	// Timeline the status for each local follower of this account.
+	// This will also handle notifying any followers with notify
+	// set to true on their follow.
+	if err := p.timelineAndNotifyStatusForFollowers(ctx, status, follows); err != nil {
+		return fmt.Errorf("timelineAndNotifyStatus: error timelining status %s for followers: %w", status.ID, err)
+	}
 
-		// if we've reached this point we know the mention is for a local account, and the notification doesn't exist, so create it
-		notif := &gtsmodel.Notification{
-			ID:               id.NewULID(),
-			NotificationType: gtsmodel.NotificationMention,
-			TargetAccountID:  m.TargetAccountID,
-			TargetAccount:    m.TargetAccount,
-			OriginAccountID:  status.AccountID,
-			OriginAccount:    status.Account,
-			StatusID:         status.ID,
-			Status:           status,
-		}
-
-		if err := p.state.DB.Put(ctx, notif); err != nil {
-			return fmt.Errorf("notifyStatus: error putting notification in database: %s", err)
-		}
-
-		// now stream the notification to the user
-		apiNotif, err := p.tc.NotificationToAPINotification(ctx, notif)
-		if err != nil {
-			return fmt.Errorf("notifyStatus: error converting notification to api representation: %s", err)
-		}
-
-		if err := p.stream.Notify(apiNotif, m.TargetAccount); err != nil {
-			return fmt.Errorf("notifyStatus: error streaming notification to account: %s", err)
-		}
+	// Notify each local account that's mentioned by this status.
+	if err := p.notifyStatusMentions(ctx, status); err != nil {
+		return fmt.Errorf("timelineAndNotifyStatus: error notifying status mentions for status %s: %w", status.ID, err)
 	}
 
 	return nil
+}
+
+func (p *Processor) timelineAndNotifyStatusForFollowers(ctx context.Context, status *gtsmodel.Status, follows []*gtsmodel.Follow) error {
+	var (
+		errs  = make(gtserror.MultiError, 0, len(follows))
+		boost = status.BoostOfID != ""
+		reply = status.InReplyToURI != ""
+	)
+
+	for _, follow := range follows {
+		if sr := follow.ShowReblogs; boost && (sr == nil || !*sr) {
+			// This is a boost, but this follower
+			// doesn't want to see those from this
+			// account, so just skip everything.
+			continue
+		}
+
+		// Add status to home timeline for this
+		// follower, and stream it if applicable.
+		if timelined, err := p.timelineStatusForAccount(ctx, follow.Account, status); err != nil {
+			errs.Append(fmt.Errorf("timelineAndNotifyStatusForFollowers: error timelining status: %w", err))
+			continue
+		} else if !timelined {
+			// Status wasn't added to home tomeline,
+			// so we shouldn't notify it either.
+			continue
+		}
+
+		if n := follow.Notify; n == nil || !*n {
+			// This follower doesn't have notifications
+			// set for this account's new posts, so bail.
+			continue
+		}
+
+		if boost || reply {
+			// Don't notify for boosts or replies.
+			continue
+		}
+
+		// If we reach here, we know:
+		//
+		//   - This follower wants to be notified when this account posts.
+		//   - This is a top-level post (not a reply).
+		//   - This is not a boost of another post.
+		//   - The post is visible in this follower's home timeline.
+		//
+		// That means we can officially notify this one.
+		if err := p.notify(
+			ctx,
+			gtsmodel.NotificationStatus,
+			follow.AccountID,
+			status.AccountID,
+			status.ID,
+		); err != nil {
+			errs.Append(fmt.Errorf("timelineAndNotifyStatusForFollowers: error notifying account %s about new status: %w", follow.AccountID, err))
+		}
+	}
+
+	return errs.Combine()
+}
+
+// timelineStatusForAccount puts the given status in the HOME timeline
+// of the account with given accountID, if it's HomeTimelineable.
+//
+// If the status was inserted into the home timeline of the given account,
+// true will be returned + it will also be streamed via websockets to the user.
+func (p *Processor) timelineStatusForAccount(ctx context.Context, account *gtsmodel.Account, status *gtsmodel.Status) (bool, error) {
+	// Make sure the status is timelineable.
+	if timelineable, err := p.filter.StatusHomeTimelineable(ctx, account, status); err != nil {
+		err = fmt.Errorf("timelineStatusForAccount: error getting timelineability for status for timeline with id %s: %w", account.ID, err)
+		return false, err
+	} else if !timelineable {
+		// Nothing to do.
+		return false, nil
+	}
+
+	// Insert status in the home timeline of account.
+	if inserted, err := p.statusTimelines.IngestOne(ctx, account.ID, status); err != nil {
+		err = fmt.Errorf("timelineStatusForAccount: error ingesting status %s: %w", status.ID, err)
+		return false, err
+	} else if !inserted {
+		// Nothing more to do.
+		return false, nil
+	}
+
+	// The status was inserted so stream it to the user.
+	apiStatus, err := p.tc.StatusToAPIStatus(ctx, status, account)
+	if err != nil {
+		err = fmt.Errorf("timelineStatusForAccount: error converting status %s to frontend representation: %w", status.ID, err)
+		return true, err
+	}
+
+	if err := p.stream.Update(apiStatus, account, stream.TimelineHome); err != nil {
+		err = fmt.Errorf("timelineStatusForAccount: error streaming update for status %s: %w", status.ID, err)
+		return true, err
+	}
+
+	return true, nil
+}
+
+func (p *Processor) notifyStatusMentions(ctx context.Context, status *gtsmodel.Status) error {
+	errs := make(gtserror.MultiError, 0, len(status.Mentions))
+
+	for _, m := range status.Mentions {
+		if err := p.notify(
+			ctx,
+			gtsmodel.NotificationMention,
+			m.TargetAccountID,
+			m.OriginAccountID,
+			m.StatusID,
+		); err != nil {
+			errs.Append(err)
+		}
+	}
+
+	return errs.Combine()
 }
 
 func (p *Processor) notifyFollowRequest(ctx context.Context, followRequest *gtsmodel.FollowRequest) error {
-	// make sure we have the target account pinned on the follow request
-	if followRequest.TargetAccount == nil {
-		a, err := p.state.DB.GetAccountByID(ctx, followRequest.TargetAccountID)
-		if err != nil {
-			return err
-		}
-		followRequest.TargetAccount = a
-	}
-	targetAccount := followRequest.TargetAccount
-
-	// return if this isn't a local account
-	if targetAccount.Domain != "" {
-		// this isn't a local account so we've got nothing to do here
-		return nil
-	}
-
-	notif := &gtsmodel.Notification{
-		ID:               id.NewULID(),
-		NotificationType: gtsmodel.NotificationFollowRequest,
-		TargetAccountID:  followRequest.TargetAccountID,
-		OriginAccountID:  followRequest.AccountID,
-	}
-
-	if err := p.state.DB.Put(ctx, notif); err != nil {
-		return fmt.Errorf("notifyFollowRequest: error putting notification in database: %s", err)
-	}
-
-	// now stream the notification to the user
-	apiNotif, err := p.tc.NotificationToAPINotification(ctx, notif)
-	if err != nil {
-		return fmt.Errorf("notifyStatus: error converting notification to api representation: %s", err)
-	}
-
-	if err := p.stream.Notify(apiNotif, targetAccount); err != nil {
-		return fmt.Errorf("notifyStatus: error streaming notification to account: %s", err)
-	}
-
-	return nil
+	return p.notify(
+		ctx,
+		gtsmodel.NotificationFollowRequest,
+		followRequest.TargetAccountID,
+		followRequest.AccountID,
+		"",
+	)
 }
 
 func (p *Processor) notifyFollow(ctx context.Context, follow *gtsmodel.Follow, targetAccount *gtsmodel.Account) error {
-	// return if this isn't a local account
-	if targetAccount.Domain != "" {
-		return nil
+	// Remove previous follow request notification, if it exists.
+	prevNotif, err := p.state.DB.GetNotification(
+		gtscontext.SetBarebones(ctx),
+		gtsmodel.NotificationFollowRequest,
+		targetAccount.ID,
+		follow.AccountID,
+		"",
+	)
+	if err != nil && !errors.Is(err, db.ErrNoEntries) {
+		// Proper error while checking.
+		return fmt.Errorf("notifyFollow: db error checking for previous follow request notification: %w", err)
 	}
 
-	// first remove the follow request notification
-	if err := p.state.DB.DeleteWhere(ctx, []db.Where{
-		{Key: "notification_type", Value: gtsmodel.NotificationFollowRequest},
-		{Key: "target_account_id", Value: follow.TargetAccountID},
-		{Key: "origin_account_id", Value: follow.AccountID},
-	}, &gtsmodel.Notification{}); err != nil {
-		return fmt.Errorf("notifyFollow: error removing old follow request notification from database: %s", err)
+	if prevNotif != nil {
+		// Previous notification existed, delete.
+		if err := p.state.DB.DeleteNotificationByID(ctx, prevNotif.ID); err != nil {
+			return fmt.Errorf("notifyFollow: db error removing previous follow request notification %s: %w", prevNotif.ID, err)
+		}
 	}
 
-	// now create the new follow notification
-	notif := &gtsmodel.Notification{
-		ID:               id.NewULID(),
-		NotificationType: gtsmodel.NotificationFollow,
-		TargetAccountID:  follow.TargetAccountID,
-		TargetAccount:    follow.TargetAccount,
-		OriginAccountID:  follow.AccountID,
-		OriginAccount:    follow.Account,
-	}
-	if err := p.state.DB.Put(ctx, notif); err != nil {
-		return fmt.Errorf("notifyFollow: error putting notification in database: %s", err)
-	}
-
-	// now stream the notification to the user
-	apiNotif, err := p.tc.NotificationToAPINotification(ctx, notif)
-	if err != nil {
-		return fmt.Errorf("notifyStatus: error converting notification to api representation: %s", err)
-	}
-
-	if err := p.stream.Notify(apiNotif, targetAccount); err != nil {
-		return fmt.Errorf("notifyStatus: error streaming notification to account: %s", err)
-	}
-
-	return nil
+	// Now notify the follow itself.
+	return p.notify(
+		ctx,
+		gtsmodel.NotificationFollow,
+		targetAccount.ID,
+		follow.AccountID,
+		"",
+	)
 }
 
 func (p *Processor) notifyFave(ctx context.Context, fave *gtsmodel.StatusFave) error {
-	// ignore self-faves
 	if fave.TargetAccountID == fave.AccountID {
+		// Self-fave, nothing to do.
 		return nil
 	}
 
-	if fave.TargetAccount == nil {
-		a, err := p.state.DB.GetAccountByID(ctx, fave.TargetAccountID)
-		if err != nil {
-			return err
-		}
-		fave.TargetAccount = a
-	}
-	targetAccount := fave.TargetAccount
-
-	// just return if target isn't a local account
-	if targetAccount.Domain != "" {
-		return nil
-	}
-
-	notif := &gtsmodel.Notification{
-		ID:               id.NewULID(),
-		NotificationType: gtsmodel.NotificationFave,
-		TargetAccountID:  fave.TargetAccountID,
-		TargetAccount:    fave.TargetAccount,
-		OriginAccountID:  fave.AccountID,
-		OriginAccount:    fave.Account,
-		StatusID:         fave.StatusID,
-		Status:           fave.Status,
-	}
-
-	if err := p.state.DB.Put(ctx, notif); err != nil {
-		return fmt.Errorf("notifyFave: error putting notification in database: %s", err)
-	}
-
-	// now stream the notification to the user
-	apiNotif, err := p.tc.NotificationToAPINotification(ctx, notif)
-	if err != nil {
-		return fmt.Errorf("notifyStatus: error converting notification to api representation: %s", err)
-	}
-
-	if err := p.stream.Notify(apiNotif, targetAccount); err != nil {
-		return fmt.Errorf("notifyStatus: error streaming notification to account: %s", err)
-	}
-
-	return nil
+	return p.notify(
+		ctx,
+		gtsmodel.NotificationFave,
+		fave.TargetAccountID,
+		fave.AccountID,
+		fave.StatusID,
+	)
 }
 
 func (p *Processor) notifyAnnounce(ctx context.Context, status *gtsmodel.Status) error {
 	if status.BoostOfID == "" {
-		// not a boost, nothing to do
-		return nil
-	}
-
-	if status.BoostOf == nil {
-		boostedStatus, err := p.state.DB.GetStatusByID(ctx, status.BoostOfID)
-		if err != nil {
-			return fmt.Errorf("notifyAnnounce: error getting status with id %s: %s", status.BoostOfID, err)
-		}
-		status.BoostOf = boostedStatus
-	}
-
-	if status.BoostOfAccount == nil {
-		boostedAcct, err := p.state.DB.GetAccountByID(ctx, status.BoostOfAccountID)
-		if err != nil {
-			return fmt.Errorf("notifyAnnounce: error getting account with id %s: %s", status.BoostOfAccountID, err)
-		}
-		status.BoostOf.Account = boostedAcct
-		status.BoostOfAccount = boostedAcct
-	}
-
-	if status.BoostOfAccount.Domain != "" {
-		// remote account, nothing to do
+		// Not a boost, nothing to do.
 		return nil
 	}
 
 	if status.BoostOfAccountID == status.AccountID {
-		// it's a self boost, nothing to do
+		// Self-boost, nothing to do.
 		return nil
 	}
 
-	// make sure a notif doesn't already exist for this announce
-	err := p.state.DB.GetWhere(ctx, []db.Where{
-		{Key: "notification_type", Value: gtsmodel.NotificationReblog},
-		{Key: "target_account_id", Value: status.BoostOfAccountID},
-		{Key: "origin_account_id", Value: status.AccountID},
-		{Key: "status_id", Value: status.ID},
-	}, &gtsmodel.Notification{})
-	if err == nil {
-		// notification exists already so just bail
+	return p.notify(
+		ctx,
+		gtsmodel.NotificationReblog,
+		status.BoostOfAccountID,
+		status.AccountID,
+		status.ID,
+	)
+}
+
+func (p *Processor) notify(
+	ctx context.Context,
+	notificationType gtsmodel.NotificationType,
+	targetAccountID string,
+	originAccountID string,
+	statusID string,
+) error {
+	targetAccount, err := p.state.DB.GetAccountByID(ctx, targetAccountID)
+	if err != nil {
+		return fmt.Errorf("notify: error getting target account %s: %w", targetAccountID, err)
+	}
+
+	if !targetAccount.IsLocal() {
+		// Nothing to do.
 		return nil
 	}
 
-	// now create the new reblog notification
+	// Make sure a notification doesn't
+	// already exist with these params.
+	if _, err := p.state.DB.GetNotification(
+		ctx,
+		notificationType,
+		targetAccountID,
+		originAccountID,
+		statusID,
+	); err == nil {
+		// Notification exists, nothing to do.
+		return nil
+	} else if !errors.Is(err, db.ErrNoEntries) {
+		// Real error.
+		return fmt.Errorf("notify: error checking existence of notification: %w", err)
+	}
+
+	// Notification doesn't yet exist, so
+	// we need to create + store one.
 	notif := &gtsmodel.Notification{
 		ID:               id.NewULID(),
-		NotificationType: gtsmodel.NotificationReblog,
-		TargetAccountID:  status.BoostOfAccountID,
-		TargetAccount:    status.BoostOfAccount,
-		OriginAccountID:  status.AccountID,
-		OriginAccount:    status.Account,
-		StatusID:         status.ID,
-		Status:           status,
+		NotificationType: notificationType,
+		TargetAccountID:  targetAccountID,
+		OriginAccountID:  originAccountID,
+		StatusID:         statusID,
 	}
 
-	if err := p.state.DB.Put(ctx, notif); err != nil {
-		return fmt.Errorf("notifyAnnounce: error putting notification in database: %s", err)
+	if err := p.state.DB.PutNotification(ctx, notif); err != nil {
+		return fmt.Errorf("notify: error putting notification in database: %w", err)
 	}
 
-	// now stream the notification to the user
+	// Stream notification to the user.
 	apiNotif, err := p.tc.NotificationToAPINotification(ctx, notif)
 	if err != nil {
-		return fmt.Errorf("notifyStatus: error converting notification to api representation: %s", err)
+		return fmt.Errorf("notify: error converting notification to api representation: %w", err)
 	}
 
-	if err := p.stream.Notify(apiNotif, status.BoostOfAccount); err != nil {
-		return fmt.Errorf("notifyStatus: error streaming notification to account: %s", err)
-	}
-
-	return nil
-}
-
-// timelineStatus processes the given new status and inserts it into
-// the HOME timelines of accounts that follow the status author.
-func (p *Processor) timelineStatus(ctx context.Context, status *gtsmodel.Status) error {
-	// make sure the author account is pinned onto the status
-	if status.Account == nil {
-		a, err := p.state.DB.GetAccountByID(ctx, status.AccountID)
-		if err != nil {
-			return fmt.Errorf("timelineStatus: error getting author account with id %s: %s", status.AccountID, err)
-		}
-		status.Account = a
-	}
-
-	// get local followers of the account that posted the status
-	follows, err := p.state.DB.GetAccountFollowedBy(ctx, status.AccountID, true)
-	if err != nil {
-		return fmt.Errorf("timelineStatus: error getting followers for account id %s: %s", status.AccountID, err)
-	}
-
-	// if the poster is local, add a fake entry for them to the followers list so they can see their own status in their timeline
-	if status.Account.Domain == "" {
-		follows = append(follows, &gtsmodel.Follow{
-			AccountID: status.AccountID,
-			Account:   status.Account,
-		})
-	}
-
-	wg := sync.WaitGroup{}
-	wg.Add(len(follows))
-	errors := make(chan error, len(follows))
-
-	for _, f := range follows {
-		go p.timelineStatusForAccount(ctx, status, f.AccountID, errors, &wg)
-	}
-
-	// read any errors that come in from the async functions
-	errs := []string{}
-	go func(errs []string) {
-		for range errors {
-			if e := <-errors; e != nil {
-				errs = append(errs, e.Error())
-			}
-		}
-	}(errs)
-
-	// wait til all functions have returned and then close the error channel
-	wg.Wait()
-	close(errors)
-
-	if len(errs) != 0 {
-		// we have at least one error
-		return fmt.Errorf("timelineStatus: one or more errors timelining statuses: %s", strings.Join(errs, ";"))
+	if err := p.stream.Notify(apiNotif, targetAccount); err != nil {
+		return fmt.Errorf("notify: error streaming notification to account: %w", err)
 	}
 
 	return nil
-}
-
-// timelineStatusForAccount puts the given status in the HOME timeline
-// of the account with given accountID, if it's hometimelineable.
-//
-// If the status was inserted into the home timeline of the given account,
-// it will also be streamed via websockets to the user.
-func (p *Processor) timelineStatusForAccount(ctx context.Context, status *gtsmodel.Status, accountID string, errors chan error, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	// get the timeline owner account
-	timelineAccount, err := p.state.DB.GetAccountByID(ctx, accountID)
-	if err != nil {
-		errors <- fmt.Errorf("timelineStatusForAccount: error getting account for timeline with id %s: %s", accountID, err)
-		return
-	}
-
-	// make sure the status is timelineable
-	timelineable, err := p.filter.StatusHometimelineable(ctx, status, timelineAccount)
-	if err != nil {
-		errors <- fmt.Errorf("timelineStatusForAccount: error getting timelineability for status for timeline with id %s: %s", accountID, err)
-		return
-	}
-
-	if !timelineable {
-		return
-	}
-
-	// stick the status in the timeline for the account and then immediately prepare it so they can see it right away
-	inserted, err := p.statusTimelines.IngestAndPrepare(ctx, status, timelineAccount.ID)
-	if err != nil {
-		errors <- fmt.Errorf("timelineStatusForAccount: error ingesting status %s: %s", status.ID, err)
-		return
-	}
-
-	// the status was inserted so stream it to the user
-	if inserted {
-		apiStatus, err := p.tc.StatusToAPIStatus(ctx, status, timelineAccount)
-		if err != nil {
-			errors <- fmt.Errorf("timelineStatusForAccount: error converting status %s to frontend representation: %s", status.ID, err)
-			return
-		}
-
-		if err := p.stream.Update(apiStatus, timelineAccount, stream.TimelineHome); err != nil {
-			errors <- fmt.Errorf("timelineStatusForAccount: error streaming status %s: %s", status.ID, err)
-		}
-	}
-}
-
-// deleteStatusFromTimelines completely removes the given status from all timelines.
-// It will also stream deletion of the status to all open streams.
-func (p *Processor) deleteStatusFromTimelines(ctx context.Context, status *gtsmodel.Status) error {
-	if err := p.statusTimelines.WipeItemFromAllTimelines(ctx, status.ID); err != nil {
-		return err
-	}
-
-	return p.stream.Delete(status.ID)
 }
 
 // wipeStatus contains common logic used to totally delete a status
@@ -431,12 +335,14 @@ func (p *Processor) wipeStatus(ctx context.Context, statusToDelete *gtsmodel.Sta
 	// than delete is that the poster might want to reattach them
 	// to another status immediately (in case of delete + redraft)
 	if deleteAttachments {
+		// todo: p.state.DB.DeleteAttachmentsForStatus
 		for _, a := range statusToDelete.AttachmentIDs {
 			if err := p.media.Delete(ctx, a); err != nil {
 				return err
 			}
 		}
 	} else {
+		// todo: p.state.DB.UnattachAttachmentsForStatus
 		for _, a := range statusToDelete.AttachmentIDs {
 			if _, err := p.media.Unattach(ctx, statusToDelete.Account, a); err != nil {
 				return err
@@ -445,19 +351,25 @@ func (p *Processor) wipeStatus(ctx context.Context, statusToDelete *gtsmodel.Sta
 	}
 
 	// delete all mention entries generated by this status
-	for _, m := range statusToDelete.MentionIDs {
-		if err := p.state.DB.DeleteByID(ctx, m, &gtsmodel.Mention{}); err != nil {
+	// todo: p.state.DB.DeleteMentionsForStatus
+	for _, id := range statusToDelete.MentionIDs {
+		if err := p.state.DB.DeleteMentionByID(ctx, id); err != nil {
 			return err
 		}
 	}
 
 	// delete all notification entries generated by this status
-	if err := p.state.DB.DeleteWhere(ctx, []db.Where{{Key: "status_id", Value: statusToDelete.ID}}, &[]*gtsmodel.Notification{}); err != nil {
+	if err := p.state.DB.DeleteNotificationsForStatus(ctx, statusToDelete.ID); err != nil {
 		return err
 	}
 
 	// delete all bookmarks that point to this status
-	if err := p.state.DB.DeleteWhere(ctx, []db.Where{{Key: "status_id", Value: statusToDelete.ID}}, &[]*gtsmodel.StatusBookmark{}); err != nil {
+	if err := p.state.DB.DeleteStatusBookmarksForStatus(ctx, statusToDelete.ID); err != nil {
+		return err
+	}
+
+	// delete all faves of this status
+	if err := p.state.DB.DeleteStatusFavesForStatus(ctx, statusToDelete.ID); err != nil {
 		return err
 	}
 
@@ -484,4 +396,108 @@ func (p *Processor) wipeStatus(ctx context.Context, statusToDelete *gtsmodel.Sta
 	}
 
 	return nil
+}
+
+// deleteStatusFromTimelines completely removes the given status from all timelines.
+// It will also stream deletion of the status to all open streams.
+func (p *Processor) deleteStatusFromTimelines(ctx context.Context, status *gtsmodel.Status) error {
+	if err := p.statusTimelines.WipeItemFromAllTimelines(ctx, status.ID); err != nil {
+		return err
+	}
+
+	return p.stream.Delete(status.ID)
+}
+
+/*
+	EMAIL FUNCTIONS
+*/
+
+func (p *Processor) emailReport(ctx context.Context, report *gtsmodel.Report) error {
+	instance, err := p.state.DB.GetInstance(ctx, config.GetHost())
+	if err != nil {
+		return fmt.Errorf("emailReport: error getting instance: %w", err)
+	}
+
+	toAddresses, err := p.state.DB.GetInstanceModeratorAddresses(ctx)
+	if err != nil {
+		if errors.Is(err, db.ErrNoEntries) {
+			// No registered moderator addresses.
+			return nil
+		}
+		return fmt.Errorf("emailReport: error getting instance moderator addresses: %w", err)
+	}
+
+	if report.Account == nil {
+		report.Account, err = p.state.DB.GetAccountByID(ctx, report.AccountID)
+		if err != nil {
+			return fmt.Errorf("emailReport: error getting report account: %w", err)
+		}
+	}
+
+	if report.TargetAccount == nil {
+		report.TargetAccount, err = p.state.DB.GetAccountByID(ctx, report.TargetAccountID)
+		if err != nil {
+			return fmt.Errorf("emailReport: error getting report target account: %w", err)
+		}
+	}
+
+	reportData := email.NewReportData{
+		InstanceURL:        instance.URI,
+		InstanceName:       instance.Title,
+		ReportURL:          instance.URI + "/settings/admin/reports/" + report.ID,
+		ReportDomain:       report.Account.Domain,
+		ReportTargetDomain: report.TargetAccount.Domain,
+	}
+
+	if err := p.emailSender.SendNewReportEmail(toAddresses, reportData); err != nil {
+		return fmt.Errorf("emailReport: error emailing instance moderators: %w", err)
+	}
+
+	return nil
+}
+
+func (p *Processor) emailReportClosed(ctx context.Context, report *gtsmodel.Report) error {
+	user, err := p.state.DB.GetUserByAccountID(ctx, report.Account.ID)
+	if err != nil {
+		return fmt.Errorf("emailReportClosed: db error getting user: %w", err)
+	}
+
+	if user.ConfirmedAt.IsZero() || !*user.Approved || *user.Disabled || user.Email == "" {
+		// Only email users who:
+		// - are confirmed
+		// - are approved
+		// - are not disabled
+		// - have an email address
+		return nil
+	}
+
+	instance, err := p.state.DB.GetInstance(ctx, config.GetHost())
+	if err != nil {
+		return fmt.Errorf("emailReportClosed: db error getting instance: %w", err)
+	}
+
+	if report.Account == nil {
+		report.Account, err = p.state.DB.GetAccountByID(ctx, report.AccountID)
+		if err != nil {
+			return fmt.Errorf("emailReportClosed: error getting report account: %w", err)
+		}
+	}
+
+	if report.TargetAccount == nil {
+		report.TargetAccount, err = p.state.DB.GetAccountByID(ctx, report.TargetAccountID)
+		if err != nil {
+			return fmt.Errorf("emailReportClosed: error getting report target account: %w", err)
+		}
+	}
+
+	reportClosedData := email.ReportClosedData{
+		Username:             report.Account.Username,
+		InstanceURL:          instance.URI,
+		InstanceName:         instance.Title,
+		ReportTargetUsername: report.TargetAccount.Username,
+		ReportTargetDomain:   report.TargetAccount.Domain,
+		ActionTakenComment:   report.ActionTaken,
+	}
+
+	return p.emailSender.SendReportClosedEmail(user.Email, reportClosedData)
 }

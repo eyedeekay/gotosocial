@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package bundb_test
 
@@ -35,15 +34,32 @@ type TimelineTestSuite struct {
 }
 
 func (suite *TimelineTestSuite) TestGetPublicTimeline() {
-	ctx := context.Background()
+	var count int
 
+	for _, status := range suite.testStatuses {
+		if status.Visibility == gtsmodel.VisibilityPublic &&
+			status.BoostOfID == "" {
+			count++
+		}
+	}
+
+	ctx := context.Background()
 	s, err := suite.db.GetPublicTimeline(ctx, "", "", "", 20, false)
 	suite.NoError(err)
 
-	suite.Len(s, 6)
+	suite.Len(s, count)
 }
 
 func (suite *TimelineTestSuite) TestGetPublicTimelineWithFutureStatus() {
+	var count int
+
+	for _, status := range suite.testStatuses {
+		if status.Visibility == gtsmodel.VisibilityPublic &&
+			status.BoostOfID == "" {
+			count++
+		}
+	}
+
 	ctx := context.Background()
 
 	futureStatus := getFutureStatus()
@@ -54,7 +70,7 @@ func (suite *TimelineTestSuite) TestGetPublicTimelineWithFutureStatus() {
 	suite.NoError(err)
 
 	suite.NotContains(s, futureStatus)
-	suite.Len(s, 6)
+	suite.Len(s, count)
 }
 
 func (suite *TimelineTestSuite) TestGetHomeTimeline() {
@@ -82,6 +98,32 @@ func (suite *TimelineTestSuite) TestGetHomeTimelineWithFutureStatus() {
 
 	suite.NotContains(s, futureStatus)
 	suite.Len(s, 16)
+}
+
+func (suite *TimelineTestSuite) TestGetHomeTimelineBackToFront() {
+	ctx := context.Background()
+
+	viewingAccount := suite.testAccounts["local_account_1"]
+
+	s, err := suite.db.GetHomeTimeline(ctx, viewingAccount.ID, "", "", id.Lowest, 5, false)
+	suite.NoError(err)
+
+	suite.Len(s, 5)
+	suite.Equal("01F8MHAYFKS4KMXF8K5Y1C0KRN", s[0].ID)
+	suite.Equal("01F8MH75CBF9JFX4ZAD54N0W0R", s[len(s)-1].ID)
+}
+
+func (suite *TimelineTestSuite) TestGetHomeTimelineFromHighest() {
+	ctx := context.Background()
+
+	viewingAccount := suite.testAccounts["local_account_1"]
+
+	s, err := suite.db.GetHomeTimeline(ctx, viewingAccount.ID, id.Highest, "", "", 5, false)
+	suite.NoError(err)
+
+	suite.Len(s, 5)
+	suite.Equal("01G36SF3V6Y6V5BF9P4R7PQG7G", s[0].ID)
+	suite.Equal("01FCTA44PW9H1TB328S9AQXKDS", s[len(s)-1].ID)
 }
 
 func getFutureStatus() *gtsmodel.Status {

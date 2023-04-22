@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package db
 
@@ -35,9 +34,16 @@ type Instance interface {
 	// CountInstanceDomains returns the number of known instances known that the given domain federates with.
 	CountInstanceDomains(ctx context.Context, domain string) (int, Error)
 
+	// GetInstance returns the instance entry for the given domain, if it exists.
+	GetInstance(ctx context.Context, domain string) (*gtsmodel.Instance, Error)
+
 	// GetInstanceAccounts returns a slice of accounts from the given instance, arranged by ID.
 	GetInstanceAccounts(ctx context.Context, domain string, maxID string, limit int) ([]*gtsmodel.Account, Error)
 
 	// GetInstancePeers returns a slice of instances that the host instance knows about.
 	GetInstancePeers(ctx context.Context, includeSuspended bool) ([]*gtsmodel.Instance, Error)
+
+	// GetInstanceModeratorAddresses returns a slice of email addresses belonging to active
+	// (as in, not suspended) moderators + admins on this instance.
+	GetInstanceModeratorAddresses(ctx context.Context) ([]string, Error)
 }

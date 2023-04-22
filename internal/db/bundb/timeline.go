@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package bundb
 
@@ -43,7 +42,10 @@ func (t *timelineDB) GetHomeTimeline(ctx context.Context, accountID string, maxI
 	}
 
 	// Make educated guess for slice size
-	statusIDs := make([]string, 0, limit)
+	var (
+		statusIDs   = make([]string, 0, limit)
+		frontToBack = true
+	)
 
 	q := t.conn.
 		NewSelect().
@@ -57,14 +59,15 @@ func (t *timelineDB) GetHomeTimeline(ctx context.Context, accountID string, maxI
 			bun.Ident("follow.target_account_id"),
 			bun.Ident("status.account_id"),
 			bun.Ident("follow.account_id"),
-			accountID).
-		// Sort by highest ID (newest) to lowest ID (oldest)
-		Order("status.id DESC")
+			accountID)
 
-	if maxID == "" {
+	if maxID == "" || maxID >= id.Highest {
+		const future = 24 * time.Hour
+
 		var err error
-		// don't return statuses more than five minutes in the future
-		maxID, err = id.NewULIDFromTime(time.Now().Add(5 * time.Minute))
+
+		// don't return statuses more than 24hr in the future
+		maxID, err = id.NewULIDFromTime(time.Now().Add(future))
 		if err != nil {
 			return nil, err
 		}
@@ -81,6 +84,9 @@ func (t *timelineDB) GetHomeTimeline(ctx context.Context, accountID string, maxI
 	if minID != "" {
 		// return only statuses HIGHER (ie., newer) than minID
 		q = q.Where("? > ?", bun.Ident("status.id"), minID)
+
+		// page up
+		frontToBack = false
 	}
 
 	if local {
@@ -91,6 +97,14 @@ func (t *timelineDB) GetHomeTimeline(ctx context.Context, accountID string, maxI
 	if limit > 0 {
 		// limit amount of statuses returned
 		q = q.Limit(limit)
+	}
+
+	if frontToBack {
+		// Page down.
+		q = q.Order("status.id DESC")
+	} else {
+		// Page up.
+		q = q.Order("status.id ASC")
 	}
 
 	// Use a WhereGroup here to specify that we want EITHER statuses posted by accounts that accountID follows,
@@ -108,8 +122,20 @@ func (t *timelineDB) GetHomeTimeline(ctx context.Context, accountID string, maxI
 		return nil, t.conn.ProcessError(err)
 	}
 
-	statuses := make([]*gtsmodel.Status, 0, len(statusIDs))
+	if len(statusIDs) == 0 {
+		return nil, nil
+	}
 
+	// If we're paging up, we still want statuses
+	// to be sorted by ID desc, so reverse ids slice.
+	// https://zchee.github.io/golang-wiki/SliceTricks/#reversing
+	if !frontToBack {
+		for l, r := 0, len(statusIDs)-1; l < r; l, r = l+1, r-1 {
+			statusIDs[l], statusIDs[r] = statusIDs[r], statusIDs[l]
+		}
+	}
+
+	statuses := make([]*gtsmodel.Status, 0, len(statusIDs))
 	for _, id := range statusIDs {
 		// Fetch status from db for ID
 		status, err := t.state.DB.GetStatusByID(ctx, id)
@@ -139,15 +165,16 @@ func (t *timelineDB) GetPublicTimeline(ctx context.Context, maxID string, sinceI
 		TableExpr("? AS ?", bun.Ident("statuses"), bun.Ident("status")).
 		Column("status.id").
 		Where("? = ?", bun.Ident("status.visibility"), gtsmodel.VisibilityPublic).
-		WhereGroup(" AND ", whereEmptyOrNull("status.in_reply_to_id")).
-		WhereGroup(" AND ", whereEmptyOrNull("status.in_reply_to_uri")).
 		WhereGroup(" AND ", whereEmptyOrNull("status.boost_of_id")).
 		Order("status.id DESC")
 
 	if maxID == "" {
+		const future = 24 * time.Hour
+
 		var err error
-		// don't return statuses more than five minutes in the future
-		maxID, err = id.NewULIDFromTime(time.Now().Add(5 * time.Minute))
+
+		// don't return statuses more than 24hr in the future
+		maxID, err = id.NewULIDFromTime(time.Now().Add(future))
 		if err != nil {
 			return nil, err
 		}

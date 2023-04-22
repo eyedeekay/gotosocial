@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package federatingdb
 
@@ -37,23 +36,27 @@ import (
 	"github.com/superseriousbusiness/gotosocial/internal/uris"
 )
 
-func sameActor(activityActor vocab.ActivityStreamsActorProperty, followActor vocab.ActivityStreamsActorProperty) bool {
-	if activityActor == nil || followActor == nil {
+func sameActor(actor1 vocab.ActivityStreamsActorProperty, actor2 vocab.ActivityStreamsActorProperty) bool {
+	if actor1 == nil || actor2 == nil {
 		return false
 	}
-	for aIter := activityActor.Begin(); aIter != activityActor.End(); aIter = aIter.Next() {
-		for fIter := followActor.Begin(); fIter != followActor.End(); fIter = fIter.Next() {
-			if aIter.GetIRI() == nil {
+
+	for a1Iter := actor1.Begin(); a1Iter != actor1.End(); a1Iter = a1Iter.Next() {
+		for a2Iter := actor2.Begin(); a2Iter != actor2.End(); a2Iter = a2Iter.Next() {
+			if a1Iter.GetIRI() == nil {
 				return false
 			}
-			if fIter.GetIRI() == nil {
+
+			if a2Iter.GetIRI() == nil {
 				return false
 			}
-			if aIter.GetIRI().String() == fIter.GetIRI().String() {
+
+			if a1Iter.GetIRI().String() == a2Iter.GetIRI().String() {
 				return true
 			}
 		}
 	}
+
 	return false
 }
 
@@ -232,7 +235,7 @@ func (f *federatingDB) ActorForInbox(ctx context.Context, inboxIRI *url.URL) (ac
 // getAccountForIRI returns the account that corresponds to or owns the given IRI.
 func (f *federatingDB) getAccountForIRI(ctx context.Context, iri *url.URL) (*gtsmodel.Account, error) {
 	var (
-		acct = &gtsmodel.Account{}
+		acct *gtsmodel.Account
 		err  error
 	)
 
@@ -246,7 +249,7 @@ func (f *federatingDB) getAccountForIRI(ctx context.Context, iri *url.URL) (*gts
 		}
 		return acct, nil
 	case uris.IsInboxPath(iri):
-		if err = f.state.DB.GetWhere(ctx, []db.Where{{Key: "inbox_uri", Value: iri.String()}}, acct); err != nil {
+		if acct, err = f.state.DB.GetAccountByInboxURI(ctx, iri.String()); err != nil {
 			if err == db.ErrNoEntries {
 				return nil, fmt.Errorf("no actor found that corresponds to inbox %s", iri.String())
 			}
@@ -254,7 +257,7 @@ func (f *federatingDB) getAccountForIRI(ctx context.Context, iri *url.URL) (*gts
 		}
 		return acct, nil
 	case uris.IsOutboxPath(iri):
-		if err = f.state.DB.GetWhere(ctx, []db.Where{{Key: "outbox_uri", Value: iri.String()}}, acct); err != nil {
+		if acct, err = f.state.DB.GetAccountByOutboxURI(ctx, iri.String()); err != nil {
 			if err == db.ErrNoEntries {
 				return nil, fmt.Errorf("no actor found that corresponds to outbox %s", iri.String())
 			}
@@ -262,7 +265,7 @@ func (f *federatingDB) getAccountForIRI(ctx context.Context, iri *url.URL) (*gts
 		}
 		return acct, nil
 	case uris.IsFollowersPath(iri):
-		if err = f.state.DB.GetWhere(ctx, []db.Where{{Key: "followers_uri", Value: iri.String()}}, acct); err != nil {
+		if acct, err = f.state.DB.GetAccountByFollowersURI(ctx, iri.String()); err != nil {
 			if err == db.ErrNoEntries {
 				return nil, fmt.Errorf("no actor found that corresponds to followers_uri %s", iri.String())
 			}
@@ -270,7 +273,7 @@ func (f *federatingDB) getAccountForIRI(ctx context.Context, iri *url.URL) (*gts
 		}
 		return acct, nil
 	case uris.IsFollowingPath(iri):
-		if err = f.state.DB.GetWhere(ctx, []db.Where{{Key: "following_uri", Value: iri.String()}}, acct); err != nil {
+		if acct, err = f.state.DB.GetAccountByFollowingURI(ctx, iri.String()); err != nil {
 			if err == db.ErrNoEntries {
 				return nil, fmt.Errorf("no actor found that corresponds to following_uri %s", iri.String())
 			}

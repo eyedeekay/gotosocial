@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package typeutils_test
 
@@ -23,6 +22,7 @@ import (
 	"github.com/superseriousbusiness/activity/streams/vocab"
 	"github.com/superseriousbusiness/gotosocial/internal/db"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
+	"github.com/superseriousbusiness/gotosocial/internal/processing"
 	"github.com/superseriousbusiness/gotosocial/internal/state"
 	"github.com/superseriousbusiness/gotosocial/internal/typeutils"
 	"github.com/superseriousbusiness/gotosocial/testrig"
@@ -471,6 +471,7 @@ const (
 type TypeUtilsTestSuite struct {
 	suite.Suite
 	db              db.DB
+	state           state.State
 	testAccounts    map[string]*gtsmodel.Account
 	testStatuses    map[string]*gtsmodel.Status
 	testAttachments map[string]*gtsmodel.MediaAttachment
@@ -482,14 +483,17 @@ type TypeUtilsTestSuite struct {
 	typeconverter typeutils.TypeConverter
 }
 
-func (suite *TypeUtilsTestSuite) SetupSuite() {
-	var state state.State
-	state.Caches.Init()
+func (suite *TypeUtilsTestSuite) SetupTest() {
+	suite.state.Caches.Init()
 
 	testrig.InitTestConfig()
 	testrig.InitTestLog()
 
-	suite.db = testrig.NewTestDB(&state)
+	suite.db = testrig.NewTestDB(&suite.state)
+	suite.state.DB = suite.db
+	storage := testrig.NewInMemoryStorage()
+	suite.state.Storage = storage
+
 	suite.testAccounts = testrig.NewTestAccounts()
 	suite.testStatuses = testrig.NewTestStatuses()
 	suite.testAttachments = testrig.NewTestAttachments()
@@ -498,12 +502,23 @@ func (suite *TypeUtilsTestSuite) SetupSuite() {
 	suite.testReports = testrig.NewTestReports()
 	suite.testMentions = testrig.NewTestMentions()
 	suite.typeconverter = typeutils.NewConverter(suite.db)
-}
 
-func (suite *TypeUtilsTestSuite) SetupTest() {
 	testrig.StandardDBSetup(suite.db, nil)
 }
 
 func (suite *TypeUtilsTestSuite) TearDownTest() {
 	testrig.StandardDBTeardown(suite.db)
+	testrig.StopWorkers(&suite.state)
+}
+
+// GetProcessor is a utility function that instantiates a processor.
+// Useful when a test in the test suite needs to change some state.
+func (suite *TypeUtilsTestSuite) GetProcessor() *processing.Processor {
+	testrig.StartWorkers(&suite.state)
+	httpClient := testrig.NewMockHTTPClient(nil, "../../testrig/media")
+	transportController := testrig.NewTestTransportController(&suite.state, httpClient)
+	mediaManager := testrig.NewTestMediaManager(&suite.state)
+	federator := testrig.NewTestFederator(&suite.state, transportController, mediaManager)
+	emailSender := testrig.NewEmailSender("../../web/template/", nil)
+	return testrig.NewTestProcessor(&suite.state, federator, emailSender, mediaManager)
 }

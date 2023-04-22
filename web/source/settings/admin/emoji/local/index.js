@@ -1,6 +1,7 @@
 /*
 	GoToSocial
-	Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
+	Copyright (C) GoToSocial Authors admin@gotosocial.org
+	SPDX-License-Identifier: AGPL-3.0-or-later
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published by
@@ -24,15 +25,13 @@ const { Switch, Route } = require("wouter");
 const EmojiOverview = require("./overview");
 const EmojiDetail = require("./detail");
 
-const base = "/settings/custom-emoji/local";
-
-module.exports = function CustomEmoji() {
+module.exports = function CustomEmoji({ baseUrl }) {
 	return (
 		<Switch>
-			<Route path={`${base}/:emojiId`}>
-				<EmojiDetail baseUrl={base} />
+			<Route path={`${baseUrl}/:emojiId`}>
+				<EmojiDetail />
 			</Route>
-			<EmojiOverview baseUrl={base} />
+			<EmojiOverview />
 		</Switch>
 	);
 };

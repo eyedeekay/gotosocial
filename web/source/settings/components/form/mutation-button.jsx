@@ -1,6 +1,7 @@
 /*
 	GoToSocial
-	Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
+	Copyright (C) GoToSocial Authors admin@gotosocial.org
+	SPDX-License-Identifier: AGPL-3.0-or-later
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published by
@@ -21,7 +22,7 @@
 const React = require("react");
 const { Error } = require("../error");
 
-module.exports = function MutationButton({ label, result, disabled, showError = true, className = "", ...inputProps }) {
+module.exports = function MutationButton({ label, result, disabled, showError = true, className = "", wrapperClassName = "", ...inputProps }) {
 	let iconClass = "";
 	const targetsThisButton = result.action == inputProps.name; // can also both be undefined, which is correct
 
@@ -33,7 +34,7 @@ module.exports = function MutationButton({ label, result, disabled, showError = 
 		}
 	}
 
-	return (<div>
+	return (<div className={wrapperClassName}>
 		{(showError && targetsThisButton && result.error) &&
 			<Error error={result.error} />
 		}

@@ -1,6 +1,7 @@
 /*
 	GoToSocial
-	Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
+	Copyright (C) GoToSocial Authors admin@gotosocial.org
+	SPDX-License-Identifier: AGPL-3.0-or-later
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published by
@@ -24,6 +25,7 @@ const ParseFromToot = require("./parse-from-toot");
 
 const query = require("../../../lib/query");
 const Loading = require("../../../components/loading");
+const { Error } = require("../../../components/error");
 
 module.exports = function RemoteEmoji() {
 	// local emoji are queried for shortcode collision detection
@@ -41,7 +43,7 @@ module.exports = function RemoteEmoji() {
 		<>
 			<h1>Custom Emoji (remote)</h1>
 			{error &&
-				<div className="error accent">{error}</div>
+				<Error error={error} />
 			}
 			{isLoading
 				? <Loading />

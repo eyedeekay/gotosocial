@@ -1,6 +1,7 @@
 /*
 	GoToSocial
-	Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
+	Copyright (C) GoToSocial Authors admin@gotosocial.org
+	SPDX-License-Identifier: AGPL-3.0-or-later
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published by
@@ -33,8 +34,10 @@ const { TextArea } = require("../../components/form/inputs");
 
 const MutationButton = require("../../components/form/mutation-button");
 const Username = require("./username");
+const { useBaseUrl } = require("../../lib/navigation/util");
 
-module.exports = function ReportDetail({ baseUrl }) {
+module.exports = function ReportDetail({ }) {
+	const baseUrl = useBaseUrl();
 	let [_match, params] = useRoute(`${baseUrl}/:reportId`);
 	if (params?.reportId == undefined) {
 		return <Redirect to={baseUrl} />;

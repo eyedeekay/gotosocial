@@ -1,25 +1,26 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package bundb_test
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"testing"
 	"time"
 
@@ -41,6 +42,12 @@ func (suite *BasicTestSuite) TestGetAccountByID() {
 }
 
 func (suite *BasicTestSuite) TestPutAccountWithBunDefaultFields() {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		suite.FailNow(err.Error())
+	}
+
+	// Create an account that only just matches constraints.
 	testAccount := &gtsmodel.Account{
 		ID:           "01GADR1AH9VCKH8YYCM86XSZ00",
 		Username:     "test",
@@ -50,6 +57,7 @@ func (suite *BasicTestSuite) TestPutAccountWithBunDefaultFields() {
 		OutboxURI:    "https://example.org/users/test/outbox",
 		ActorType:    "Person",
 		PublicKeyURI: "https://example.org/test#main-key",
+		PublicKey:    &key.PublicKey,
 	}
 
 	if err := suite.db.Put(context.Background(), testAccount); err != nil {
@@ -100,7 +108,7 @@ func (suite *BasicTestSuite) TestPutAccountWithBunDefaultFields() {
 	suite.Empty(a.FeaturedCollectionURI)
 	suite.Equal(testAccount.ActorType, a.ActorType)
 	suite.Nil(a.PrivateKey)
-	suite.Nil(a.PublicKey)
+	suite.EqualValues(key.PublicKey, *a.PublicKey)
 	suite.Equal(testAccount.PublicKeyURI, a.PublicKeyURI)
 	suite.Zero(a.SensitizedAt)
 	suite.Zero(a.SilencedAt)

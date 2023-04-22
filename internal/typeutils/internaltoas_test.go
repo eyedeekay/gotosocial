@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package typeutils_test
 
@@ -27,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 	"github.com/superseriousbusiness/activity/streams"
+	"github.com/superseriousbusiness/gotosocial/internal/ap"
 	"github.com/superseriousbusiness/gotosocial/internal/db"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/testrig"
@@ -460,18 +460,18 @@ func (suite *InternalToASTestSuite) TestStatusToASDeletePublicReplyOriginalDelet
 	testStatus := suite.testStatuses["admin_account_status_3"]
 	ctx := context.Background()
 
-  // Delete the status this replies to.
-  if err := suite.db.DeleteStatusByID(ctx, testStatus.ID); err != nil {
-    suite.FailNow(err.Error())
-  }
+	// Delete the status this replies to.
+	if err := suite.db.DeleteStatusByID(ctx, testStatus.ID); err != nil {
+		suite.FailNow(err.Error())
+	}
 
-  // Delete the mention the reply created.
-  mention := suite.testMentions["admin_account_mention_zork"]
-  if err := suite.db.DeleteByID(ctx, mention.ID, mention); err != nil {
-    suite.FailNow(err.Error())
-  }
+	// Delete the mention the reply created.
+	mention := suite.testMentions["admin_account_mention_zork"]
+	if err := suite.db.DeleteByID(ctx, mention.ID, mention); err != nil {
+		suite.FailNow(err.Error())
+	}
 
-  // The delete should still be created OK.
+	// The delete should still be created OK.
 	asDelete, err := suite.typeconverter.StatusToASDelete(ctx, testStatus)
 	suite.NoError(err)
 
@@ -670,7 +670,7 @@ func (suite *InternalToASTestSuite) TestPinnedStatusesToASSomeItems() {
 		suite.FailNow(err.Error())
 	}
 
-	ser, err := streams.Serialize(collection)
+	ser, err := ap.SerializeOrderedCollection(collection)
 	suite.NoError(err)
 
 	bytes, err := json.MarshalIndent(ser, "", "  ")
@@ -702,7 +702,7 @@ func (suite *InternalToASTestSuite) TestPinnedStatusesToASNoItems() {
 		suite.FailNow(err.Error())
 	}
 
-	ser, err := streams.Serialize(collection)
+	ser, err := ap.SerializeOrderedCollection(collection)
 	suite.NoError(err)
 
 	bytes, err := json.MarshalIndent(ser, "", "  ")
@@ -731,7 +731,7 @@ func (suite *InternalToASTestSuite) TestPinnedStatusesToASOneItem() {
 		suite.FailNow(err.Error())
 	}
 
-	ser, err := streams.Serialize(collection)
+	ser, err := ap.SerializeOrderedCollection(collection)
 	suite.NoError(err)
 
 	bytes, err := json.MarshalIndent(ser, "", "  ")
@@ -740,7 +740,9 @@ func (suite *InternalToASTestSuite) TestPinnedStatusesToASOneItem() {
 	suite.Equal(`{
   "@context": "https://www.w3.org/ns/activitystreams",
   "id": "http://localhost:8080/users/1happyturtle/collections/featured",
-  "orderedItems": "http://localhost:8080/users/1happyturtle/statuses/01G20ZM733MGN8J344T4ZDDFY1",
+  "orderedItems": [
+    "http://localhost:8080/users/1happyturtle/statuses/01G20ZM733MGN8J344T4ZDDFY1"
+  ],
   "totalItems": 1,
   "type": "OrderedCollection"
 }`, string(bytes))

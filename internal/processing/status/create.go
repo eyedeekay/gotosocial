@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package status
 
@@ -94,13 +93,7 @@ func (p *Processor) Create(ctx context.Context, account *gtsmodel.Account, appli
 		OriginAccount:  account,
 	})
 
-	// return the frontend representation of the new status to the submitter
-	apiStatus, err := p.tc.StatusToAPIStatus(ctx, newStatus, account)
-	if err != nil {
-		return nil, gtserror.NewErrorInternalError(fmt.Errorf("error converting status %s to frontend representation: %s", newStatus.ID, err))
-	}
-
-	return apiStatus, nil
+	return p.apiStatus(ctx, newStatus, account)
 }
 
 func processReplyToID(ctx context.Context, dbService db.DB, form *apimodel.AdvancedStatusCreateForm, thisAccountID string, status *gtsmodel.Status) gtserror.WithCode {
@@ -140,7 +133,7 @@ func processReplyToID(ctx context.Context, dbService db.DB, form *apimodel.Advan
 		return gtserror.NewErrorInternalError(err)
 	}
 
-	if blocked, err := dbService.IsBlocked(ctx, thisAccountID, repliedAccount.ID, true); err != nil {
+	if blocked, err := dbService.IsEitherBlocked(ctx, thisAccountID, repliedAccount.ID); err != nil {
 		err := fmt.Errorf("db error checking block: %s", err)
 		return gtserror.NewErrorInternalError(err)
 	} else if blocked {

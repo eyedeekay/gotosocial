@@ -1,25 +1,25 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package account
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
@@ -33,10 +33,11 @@ import (
 // the account given in authed.
 func (p *Processor) StatusesGet(ctx context.Context, requestingAccount *gtsmodel.Account, targetAccountID string, limit int, excludeReplies bool, excludeReblogs bool, maxID string, minID string, pinned bool, mediaOnly bool, publicOnly bool) (*apimodel.PageableResponse, gtserror.WithCode) {
 	if requestingAccount != nil {
-		if blocked, err := p.state.DB.IsBlocked(ctx, requestingAccount.ID, targetAccountID, true); err != nil {
+		if blocked, err := p.state.DB.IsEitherBlocked(ctx, requestingAccount.ID, targetAccountID); err != nil {
 			return nil, gtserror.NewErrorInternalError(err)
 		} else if blocked {
-			return nil, gtserror.NewErrorNotFound(fmt.Errorf("block exists between accounts"))
+			err := errors.New("block exists between accounts")
+			return nil, gtserror.NewErrorNotFound(err)
 		}
 	}
 
@@ -58,14 +59,10 @@ func (p *Processor) StatusesGet(ctx context.Context, requestingAccount *gtsmodel
 		return nil, gtserror.NewErrorInternalError(err)
 	}
 
-	// Filtering + serialization process is the same for
-	// either pinned status queries or 'normal' ones.
-	filtered := make([]*gtsmodel.Status, 0, len(statuses))
-	for _, s := range statuses {
-		visible, err := p.filter.StatusVisible(ctx, s, requestingAccount)
-		if err == nil && visible {
-			filtered = append(filtered, s)
-		}
+	// Filtering + serialization process is the same for either pinned status queries or 'normal' ones.
+	filtered, err := p.filter.StatusesVisible(ctx, requestingAccount, statuses)
+	if err != nil {
+		return nil, gtserror.NewErrorInternalError(err)
 	}
 
 	count := len(filtered)

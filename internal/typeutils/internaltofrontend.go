@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package typeutils
 
@@ -27,7 +26,6 @@ import (
 
 	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
 	"github.com/superseriousbusiness/gotosocial/internal/config"
-	"github.com/superseriousbusiness/gotosocial/internal/db"
 	"github.com/superseriousbusiness/gotosocial/internal/gtserror"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
@@ -61,15 +59,9 @@ func (c *converter) AccountToAPIAccountSensitive(ctx context.Context, a *gtsmode
 	// then adding the Source object to it...
 
 	// check pending follow requests aimed at this account
-	frs, err := c.db.GetAccountFollowRequests(ctx, a.ID)
+	frc, err := c.db.CountAccountFollowRequests(ctx, a.ID)
 	if err != nil {
-		if err != db.ErrNoEntries {
-			return nil, fmt.Errorf("error getting follow requests: %s", err)
-		}
-	}
-	var frc int
-	if frs != nil {
-		frc = len(frs)
+		return nil, fmt.Errorf("error counting follow requests: %s", err)
 	}
 
 	statusContentType := string(apimodel.StatusContentTypeDefault)
@@ -92,13 +84,13 @@ func (c *converter) AccountToAPIAccountSensitive(ctx context.Context, a *gtsmode
 
 func (c *converter) AccountToAPIAccountPublic(ctx context.Context, a *gtsmodel.Account) (*apimodel.Account, error) {
 	// count followers
-	followersCount, err := c.db.CountAccountFollowedBy(ctx, a.ID, false)
+	followersCount, err := c.db.CountAccountFollowers(ctx, a.ID)
 	if err != nil {
 		return nil, fmt.Errorf("error counting followers: %s", err)
 	}
 
 	// count following
-	followingCount, err := c.db.CountAccountFollows(ctx, a.ID, false)
+	followingCount, err := c.db.CountAccountFollows(ctx, a.ID)
 	if err != nil {
 		return nil, fmt.Errorf("error counting following: %s", err)
 	}
@@ -278,7 +270,7 @@ func (c *converter) AccountToAdminAPIAccount(ctx context.Context, a *gtsmodel.Ac
 	)
 
 	// take user-level information if possible
-	if a.Domain != "" {
+	if a.IsRemote() {
 		domain = &a.Domain
 	} else {
 		user, err := c.db.GetUserByAccountID(ctx, a.ID)
@@ -297,7 +289,9 @@ func (c *converter) AccountToAdminAPIAccount(ctx context.Context, a *gtsmodel.Ac
 		}
 
 		locale = user.Locale
-		inviteRequest = &user.Account.Reason
+		if user.Account.Reason != "" {
+			inviteRequest = &user.Account.Reason
+		}
 		if *user.Admin {
 			role.Name = apimodel.AccountRoleAdmin
 		} else if *user.Moderator {
@@ -306,10 +300,11 @@ func (c *converter) AccountToAdminAPIAccount(ctx context.Context, a *gtsmodel.Ac
 		confirmed = !user.ConfirmedAt.IsZero()
 		approved = *user.Approved
 		disabled = *user.Disabled
-		silenced = !user.Account.SilencedAt.IsZero()
-		suspended = !user.Account.SuspendedAt.IsZero()
 		createdByApplicationID = user.CreatedByApplicationID
 	}
+
+	silenced = !a.SilencedAt.IsZero()
+	suspended = !a.SuspendedAt.IsZero()
 
 	apiAccount, err := c.AccountToAPIAccountPublic(ctx, a)
 	if err != nil {

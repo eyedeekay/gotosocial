@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package admin
 
@@ -26,60 +25,37 @@ import (
 )
 
 const (
-	// BasePath is the base API path for this module, excluding the api prefix
-	BasePath = "/v1/admin"
-	// EmojiPath is used for posting/deleting custom emojis.
-	EmojiPath = BasePath + "/custom_emojis"
-	// EmojiPathWithID is used for interacting with a single emoji.
-	EmojiPathWithID = EmojiPath + "/:" + IDKey
-	// EmojiCategoriesPath is used for interacting with emoji categories.
-	EmojiCategoriesPath = EmojiPath + "/categories"
-	// DomainBlocksPath is used for posting domain blocks.
-	DomainBlocksPath = BasePath + "/domain_blocks"
-	// DomainBlocksPathWithID is used for interacting with a single domain block.
+	BasePath               = "/v1/admin"
+	EmojiPath              = BasePath + "/custom_emojis"
+	EmojiPathWithID        = EmojiPath + "/:" + IDKey
+	EmojiCategoriesPath    = EmojiPath + "/categories"
+	DomainBlocksPath       = BasePath + "/domain_blocks"
 	DomainBlocksPathWithID = DomainBlocksPath + "/:" + IDKey
-	// AccountsPath is used for listing + acting on accounts.
-	AccountsPath = BasePath + "/accounts"
-	// AccountsPathWithID is used for interacting with a single account.
-	AccountsPathWithID = AccountsPath + "/:" + IDKey
-	// AccountsActionPath is used for taking action on a single account.
-	AccountsActionPath = AccountsPathWithID + "/action"
-	MediaCleanupPath   = BasePath + "/media_cleanup"
-	MediaRefetchPath   = BasePath + "/media_refetch"
-	// ReportsPath is for serving admin view of user reports.
-	ReportsPath = BasePath + "/reports"
-	// ReportsPathWithID is for viewing/acting on one report.
-	ReportsPathWithID = ReportsPath + "/:" + IDKey
-	// ReportsResolvePath is for marking one report as resolved.
-	ReportsResolvePath = ReportsPathWithID + "/resolve"
+	AccountsPath           = BasePath + "/accounts"
+	AccountsPathWithID     = AccountsPath + "/:" + IDKey
+	AccountsActionPath     = AccountsPathWithID + "/action"
+	MediaCleanupPath       = BasePath + "/media_cleanup"
+	MediaRefetchPath       = BasePath + "/media_refetch"
+	ReportsPath            = BasePath + "/reports"
+	ReportsPathWithID      = ReportsPath + "/:" + IDKey
+	ReportsResolvePath     = ReportsPathWithID + "/resolve"
+	EmailPath              = BasePath + "/email"
+	EmailTestPath          = EmailPath + "/test"
 
-	// ExportQueryKey is for requesting a public export of some data.
-	ExportQueryKey = "export"
-	// ImportQueryKey is for submitting an import of some data.
-	ImportQueryKey = "import"
-	// IDKey specifies the ID of a single item being interacted with.
-	IDKey = "id"
-	// FilterKey is for applying filters to admin views of accounts, emojis, etc.
-	FilterQueryKey = "filter"
-	// MaxShortcodeDomainKey is the url query for returning emoji results lower (alphabetically)
-	// than the given `[shortcode]@[domain]` parameter.
+	ExportQueryKey        = "export"
+	ImportQueryKey        = "import"
+	IDKey                 = "id"
+	FilterQueryKey        = "filter"
 	MaxShortcodeDomainKey = "max_shortcode_domain"
-	// MaxShortcodeDomainKey is the url query for returning emoji results higher (alphabetically)
-	// than the given `[shortcode]@[domain]` parameter.
 	MinShortcodeDomainKey = "min_shortcode_domain"
-	// LimitKey is for specifying maximum number of results to return.
-	LimitKey = "limit"
-	// DomainQueryKey is for specifying a domain during admin actions.
-	DomainQueryKey = "domain"
-	// ResolvedKey is for filtering reports by their resolved status
-	ResolvedKey = "resolved"
-	// AccountIDKey is for selecting account in API paths.
-	AccountIDKey = "account_id"
-	// TargetAccountIDKey is for selecting target account in API paths.
-	TargetAccountIDKey = "target_account_id"
-	MaxIDKey           = "max_id"
-	SinceIDKey         = "since_id"
-	MinIDKey           = "min_id"
+	LimitKey              = "limit"
+	DomainQueryKey        = "domain"
+	ResolvedKey           = "resolved"
+	AccountIDKey          = "account_id"
+	TargetAccountIDKey    = "target_account_id"
+	MaxIDKey              = "max_id"
+	SinceIDKey            = "since_id"
+	MinIDKey              = "min_id"
 )
 
 type Module struct {
@@ -118,4 +94,7 @@ func (m *Module) Route(attachHandler func(method string, path string, f ...gin.H
 	attachHandler(http.MethodGet, ReportsPath, m.ReportsGETHandler)
 	attachHandler(http.MethodGet, ReportsPathWithID, m.ReportGETHandler)
 	attachHandler(http.MethodPost, ReportsResolvePath, m.ReportResolvePOSTHandler)
+
+	// email stuff
+	attachHandler(http.MethodPost, EmailTestPath, m.EmailTestPOSTHandler)
 }

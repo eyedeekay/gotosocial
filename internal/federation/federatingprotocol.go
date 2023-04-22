@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package federation
 
@@ -25,7 +24,6 @@ import (
 	"net/http"
 	"net/url"
 
-	"codeberg.org/gruf/go-kv"
 	"github.com/superseriousbusiness/activity/pub"
 	"github.com/superseriousbusiness/activity/streams"
 	"github.com/superseriousbusiness/activity/streams/vocab"
@@ -139,74 +137,80 @@ func (f *federator) PostInboxRequestBodyHook(ctx context.Context, r *http.Reques
 // authenticated must be true and error nil. The request will continue
 // to be processed.
 func (f *federator) AuthenticatePostInbox(ctx context.Context, w http.ResponseWriter, r *http.Request) (context.Context, bool, error) {
-	l := log.WithContext(ctx).
-		WithFields(kv.Fields{
-			{"useragent", r.UserAgent()},
-			{"url", r.URL.String()},
-		}...)
-	l.Trace("received request to authenticate")
+	log.Tracef(ctx, "received request to authenticate inbox %s", r.URL.String())
 
-	if !uris.IsInboxPath(r.URL) {
-		return nil, false, fmt.Errorf("path %s was not an inbox path", r.URL.String())
-	}
-
+	// Ensure this is an inbox path, and fetch the inbox owner
+	// account by parsing username from `/users/{username}/inbox`.
 	username, err := uris.ParseInboxPath(r.URL)
 	if err != nil {
-		return nil, false, fmt.Errorf("could not parse path %s: %s", r.URL.String(), err)
+		err = fmt.Errorf("AuthenticatePostInbox: could not parse %s as inbox path: %w", r.URL.String(), err)
+		return nil, false, err
 	}
 
 	if username == "" {
-		return nil, false, errors.New("username was empty")
+		err = errors.New("AuthenticatePostInbox: inbox username was empty")
+		return nil, false, err
 	}
 
 	receivingAccount, err := f.db.GetAccountByUsernameDomain(ctx, username, "")
 	if err != nil {
-		return nil, false, fmt.Errorf("could not fetch receiving account with username %s: %s", username, err)
+		err = fmt.Errorf("AuthenticatePostInbox: could not fetch receiving account %s: %w", username, err)
+		return nil, false, err
 	}
 
+	// Check who's delivering by inspecting the http signature.
 	publicKeyOwnerURI, errWithCode := f.AuthenticateFederatedRequest(ctx, receivingAccount.Username)
 	if errWithCode != nil {
 		switch errWithCode.Code() {
 		case http.StatusUnauthorized, http.StatusForbidden, http.StatusBadRequest:
-			// if 400, 401, or 403, obey the interface by writing the header and bailing
+			// If codes 400, 401, or 403, obey the go-fed
+			// interface by writing the header and bailing.
 			w.WriteHeader(errWithCode.Code())
 			return ctx, false, nil
 		case http.StatusGone:
-			// if the requesting account has gone (http 410) then likely
-			// inbox post was a delete, we can just write 202 and leave,
-			// since we didn't know about the account anyway, so we can't
-			// do any further processing
+			// If the requesting account's key has gone
+			// (410) then likely inbox post was a delete.
+			//
+			// We can just write 202 and leave: we didn't
+			// know about the account anyway, so we can't
+			// do any further processing.
 			w.WriteHeader(http.StatusAccepted)
 			return ctx, false, nil
 		default:
-			// if not, there's been a proper error
+			// Proper error.
 			return ctx, false, err
 		}
 	}
 
-	// authentication has passed, so add an instance entry for this instance if it hasn't been done already
-	i := &gtsmodel.Instance{}
-	if err := f.db.GetWhere(ctx, []db.Where{{Key: "domain", Value: publicKeyOwnerURI.Host}}, i); err != nil {
-		if err != db.ErrNoEntries {
-			// there's been an actual error
-			return ctx, false, fmt.Errorf("error getting requesting account with public key id %s: %s", publicKeyOwnerURI.String(), err)
+	// Authentication has passed, check if we need to create a
+	// new instance entry for the Host of the requesting account.
+	if _, err := f.db.GetInstance(ctx, publicKeyOwnerURI.Host); err != nil {
+		if !errors.Is(err, db.ErrNoEntries) {
+			// There's been an actual error.
+			err = fmt.Errorf("AuthenticatePostInbox: error getting instance %s: %w", publicKeyOwnerURI.Host, err)
+			return ctx, false, err
 		}
 
-		// we don't have an entry for this instance yet so dereference it
-		i, err = f.GetRemoteInstance(transport.WithFastfail(ctx), username, &url.URL{
+		// We don't yet have an entry for
+		// the instance, go dereference it.
+		instance, err := f.GetRemoteInstance(transport.WithFastfail(ctx), username, &url.URL{
 			Scheme: publicKeyOwnerURI.Scheme,
 			Host:   publicKeyOwnerURI.Host,
 		})
 		if err != nil {
-			return nil, false, fmt.Errorf("could not dereference new remote instance %s during AuthenticatePostInbox: %s", publicKeyOwnerURI.Host, err)
+			err = fmt.Errorf("AuthenticatePostInbox: error dereferencing instance %s: %w", publicKeyOwnerURI.Host, err)
+			return nil, false, err
 		}
 
-		// and put it in the db
-		if err := f.db.Put(ctx, i); err != nil {
-			return nil, false, fmt.Errorf("error inserting newly dereferenced instance %s: %s", publicKeyOwnerURI.Host, err)
+		if err := f.db.Put(ctx, instance); err != nil {
+			err = fmt.Errorf("AuthenticatePostInbox: error inserting instance entry for %s: %w", publicKeyOwnerURI.Host, err)
+			return nil, false, err
 		}
 	}
 
+	// We know the public key owner URI now, so we can
+	// dereference the remote account (or just get it
+	// from the db if we already have it).
 	requestingAccount, err := f.GetAccountByURI(
 		transport.WithFastfail(ctx), username, publicKeyOwnerURI, false,
 	)
@@ -221,9 +225,12 @@ func (f *federator) AuthenticatePostInbox(ctx context.Context, w http.ResponseWr
 			w.WriteHeader(http.StatusAccepted)
 			return ctx, false, nil
 		}
-		return nil, false, fmt.Errorf("couldn't get requesting account %s: %s", publicKeyOwnerURI, err)
+		err = fmt.Errorf("AuthenticatePostInbox: couldn't get requesting account %s: %w", publicKeyOwnerURI, err)
+		return nil, false, err
 	}
 
+	// We have everything we need now, set the requesting
+	// and receiving accounts on the context for later use.
 	withRequesting := context.WithValue(ctx, ap.ContextRequestingAccount, requestingAccount)
 	withReceiving := context.WithValue(withRequesting, ap.ContextReceivingAccount, receivingAccount)
 	return withReceiving, true, nil
@@ -284,7 +291,7 @@ func (f *federator) Blocked(ctx context.Context, actorIRIs []*url.URL) (bool, er
 		return false, errors.New("requesting account not set on request context, so couldn't determine blocks")
 	}
 	// the receiver shouldn't block the sender
-	blocked, err = f.db.IsBlocked(ctx, receivingAccount.ID, requestingAccount.ID, false)
+	blocked, err = f.db.IsBlocked(ctx, receivingAccount.ID, requestingAccount.ID)
 	if err != nil {
 		return false, fmt.Errorf("error checking user-level blocks: %s", err)
 	}
@@ -310,7 +317,7 @@ func (f *federator) Blocked(ctx context.Context, actorIRIs []*url.URL) (bool, er
 
 	for _, involvedAccountID := range deduped {
 		// the involved account shouldn't block whoever is making this request
-		blocked, err = f.db.IsBlocked(ctx, involvedAccountID, requestingAccount.ID, false)
+		blocked, err = f.db.IsBlocked(ctx, involvedAccountID, requestingAccount.ID)
 		if err != nil {
 			return false, fmt.Errorf("error checking user-level otherInvolvedIRI blocks: %s", err)
 		}
@@ -319,7 +326,7 @@ func (f *federator) Blocked(ctx context.Context, actorIRIs []*url.URL) (bool, er
 		}
 
 		// whoever is receiving this request shouldn't block the involved account
-		blocked, err = f.db.IsBlocked(ctx, receivingAccount.ID, involvedAccountID, false)
+		blocked, err = f.db.IsBlocked(ctx, receivingAccount.ID, involvedAccountID)
 		if err != nil {
 			return false, fmt.Errorf("error checking user-level otherInvolvedIRI blocks: %s", err)
 		}
@@ -352,14 +359,15 @@ func (f *federator) Blocked(ctx context.Context, actorIRIs []*url.URL) (bool, er
 // type and extension. The unhandled ones are passed to DefaultCallback.
 func (f *federator) FederatingCallbacks(ctx context.Context) (wrapped pub.FederatingWrappedCallbacks, other []interface{}, err error) {
 	wrapped = pub.FederatingWrappedCallbacks{
-		// OnFollow determines what action to take for this particular callback
-		// if a Follow Activity is handled.
+		// OnFollow determines what action to take for this
+		// particular callback if a Follow Activity is handled.
 		//
-		// For our implementation, we always want to do nothing because we have internal logic for handling follows.
+		// For our implementation, we always want to do nothing
+		// because we have internal logic for handling follows.
 		OnFollow: pub.OnFollowDoNothing,
 	}
 
-	// override some default behaviors and trigger our own side effects
+	// Override some default behaviors to trigger our own side effects.
 	other = []interface{}{
 		func(ctx context.Context, undo vocab.ActivityStreamsUndo) error {
 			return f.FederatingDB().Undo(ctx, undo)
@@ -386,11 +394,7 @@ func (f *federator) FederatingCallbacks(ctx context.Context) (wrapped pub.Federa
 // type and extension, so the unhandled ones are passed to
 // DefaultCallback.
 func (f *federator) DefaultCallback(ctx context.Context, activity pub.Activity) error {
-	l := log.WithContext(ctx).
-		WithFields(kv.Fields{
-			{"aptype", activity.GetTypeName()},
-		}...)
-	l.Debug("received unhandle-able activity type so ignoring it")
+	log.Debugf(ctx, "received unhandle-able activity type (%s) so ignoring it", activity.GetTypeName())
 	return nil
 }
 

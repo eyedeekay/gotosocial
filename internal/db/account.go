@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package db
 
@@ -42,11 +41,26 @@ type Account interface {
 	// GetAccountByPubkeyID returns one account with the given public key URI (ID), or an error if something goes wrong.
 	GetAccountByPubkeyID(ctx context.Context, id string) (*gtsmodel.Account, Error)
 
+	// GetAccountByInboxURI returns one account with the given inbox_uri, or an error if something goes wrong.
+	GetAccountByInboxURI(ctx context.Context, uri string) (*gtsmodel.Account, Error)
+
+	// GetAccountByOutboxURI returns one account with the given outbox_uri, or an error if something goes wrong.
+	GetAccountByOutboxURI(ctx context.Context, uri string) (*gtsmodel.Account, Error)
+
+	// GetAccountByFollowingURI returns one account with the given following_uri, or an error if something goes wrong.
+	GetAccountByFollowingURI(ctx context.Context, uri string) (*gtsmodel.Account, Error)
+
+	// GetAccountByFollowersURI returns one account with the given followers_uri, or an error if something goes wrong.
+	GetAccountByFollowersURI(ctx context.Context, uri string) (*gtsmodel.Account, Error)
+
+	// PopulateAccount ensures that all sub-models of an account are populated (e.g. avatar, header etc).
+	PopulateAccount(ctx context.Context, account *gtsmodel.Account) error
+
 	// PutAccount puts one account in the database.
 	PutAccount(ctx context.Context, account *gtsmodel.Account) Error
 
 	// UpdateAccount updates one account by ID.
-	UpdateAccount(ctx context.Context, account *gtsmodel.Account) Error
+	UpdateAccount(ctx context.Context, account *gtsmodel.Account, columns ...string) Error
 
 	// DeleteAccount deletes one account from the database by its ID.
 	// DO NOT USE THIS WHEN SUSPENDING ACCOUNTS! In that case you should mark the
@@ -86,8 +100,6 @@ type Account interface {
 	//
 	// In the case of no statuses, this function will return db.ErrNoEntries.
 	GetAccountWebStatuses(ctx context.Context, accountID string, limit int, maxID string) ([]*gtsmodel.Status, Error)
-
-	GetBookmarks(ctx context.Context, accountID string, limit int, maxID string, minID string) ([]*gtsmodel.StatusBookmark, Error)
 
 	GetAccountBlocks(ctx context.Context, accountID string, maxID string, sinceID string, limit int) ([]*gtsmodel.Account, string, string, Error)
 

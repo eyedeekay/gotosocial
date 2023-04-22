@@ -1,6 +1,7 @@
 /*
 	GoToSocial
-	Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
+	Copyright (C) GoToSocial Authors admin@gotosocial.org
+	SPDX-License-Identifier: AGPL-3.0-or-later
 
 	This program is free software: you can redistribute it and/or modify
 	it under the terms of the GNU Affero General Public License as published by
@@ -32,9 +33,7 @@ const useFormSubmit = require("../../../lib/form/submit");
 const ProcessImport = require("./process");
 const ImportExportForm = require("./form");
 
-const baseUrl = "/settings/admin/federation/import-export";
-
-module.exports = function ImportExport() {
+module.exports = function ImportExport({ baseUrl }) {
 	const form = {
 		domains: useTextInput("domains"),
 		exportType: useTextInput("exportType", { defaultValue: "plain", dontReset: true })

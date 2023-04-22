@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package processing_test
 
@@ -27,7 +26,6 @@ import (
 
 	"github.com/stretchr/testify/suite"
 	"github.com/superseriousbusiness/activity/pub"
-	apimodel "github.com/superseriousbusiness/gotosocial/internal/api/model"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/testrig"
 )
@@ -53,10 +51,7 @@ func (suite *AccountTestSuite) TestAccountDeleteLocal() {
 	err := suite.db.Put(ctx, follow)
 	suite.NoError(err)
 
-	errWithCode := suite.processor.Account().DeleteLocal(ctx, suite.testAccounts["local_account_1"], &apimodel.AccountDeleteRequest{
-		Password:       "password",
-		DeleteOriginID: deletingAccount.ID,
-	})
+	errWithCode := suite.processor.Account().DeleteSelf(ctx, suite.testAccounts["local_account_1"])
 	suite.NoError(errWithCode)
 
 	// the delete should be federated outwards to the following account's inbox
@@ -93,7 +88,7 @@ func (suite *AccountTestSuite) TestAccountDeleteLocal() {
 
 	if !testrig.WaitFor(func() bool {
 		dbAccount, _ := suite.db.GetAccountByID(ctx, deletingAccount.ID)
-		return suite.WithinDuration(dbAccount.SuspendedAt, time.Now(), 30*time.Second)
+		return !dbAccount.SuspendedAt.IsZero()
 	}) {
 		suite.FailNow("timed out waiting for account to be deleted")
 	}

@@ -1,30 +1,31 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package bundb_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
+	"github.com/superseriousbusiness/gotosocial/internal/db"
 	"github.com/superseriousbusiness/gotosocial/internal/gtsmodel"
 	"github.com/superseriousbusiness/gotosocial/internal/id"
 	"github.com/superseriousbusiness/gotosocial/testrig"
@@ -84,11 +85,11 @@ type NotificationTestSuite struct {
 	BunDBStandardTestSuite
 }
 
-func (suite *NotificationTestSuite) TestGetNotificationsWithSpam() {
+func (suite *NotificationTestSuite) TestGetAccountNotificationsWithSpam() {
 	suite.spamNotifs()
 	testAccount := suite.testAccounts["local_account_1"]
 	before := time.Now()
-	notifications, err := suite.db.GetNotifications(context.Background(), testAccount.ID, []string{}, 20, id.Highest, id.Lowest)
+	notifications, err := suite.db.GetAccountNotifications(context.Background(), testAccount.ID, []string{}, 20, id.Highest, id.Lowest)
 	suite.NoError(err)
 	timeTaken := time.Since(before)
 	fmt.Printf("\n\n\n withSpam: got %d notifications in %s\n\n\n", len(notifications), timeTaken)
@@ -99,10 +100,10 @@ func (suite *NotificationTestSuite) TestGetNotificationsWithSpam() {
 	}
 }
 
-func (suite *NotificationTestSuite) TestGetNotificationsWithoutSpam() {
+func (suite *NotificationTestSuite) TestGetAccountNotificationsWithoutSpam() {
 	testAccount := suite.testAccounts["local_account_1"]
 	before := time.Now()
-	notifications, err := suite.db.GetNotifications(context.Background(), testAccount.ID, []string{}, 20, id.Highest, id.Lowest)
+	notifications, err := suite.db.GetAccountNotifications(context.Background(), testAccount.ID, []string{}, 20, id.Highest, id.Lowest)
 	suite.NoError(err)
 	timeTaken := time.Since(before)
 	fmt.Printf("\n\n\n withoutSpam: got %d notifications in %s\n\n\n", len(notifications), timeTaken)
@@ -113,25 +114,25 @@ func (suite *NotificationTestSuite) TestGetNotificationsWithoutSpam() {
 	}
 }
 
-func (suite *NotificationTestSuite) TestClearNotificationsWithSpam() {
+func (suite *NotificationTestSuite) TestDeleteNotificationsWithSpam() {
 	suite.spamNotifs()
 	testAccount := suite.testAccounts["local_account_1"]
-	err := suite.db.ClearNotifications(context.Background(), testAccount.ID)
+	err := suite.db.DeleteNotifications(context.Background(), nil, testAccount.ID, "")
 	suite.NoError(err)
 
-	notifications, err := suite.db.GetNotifications(context.Background(), testAccount.ID, []string{}, 20, id.Highest, id.Lowest)
+	notifications, err := suite.db.GetAccountNotifications(context.Background(), testAccount.ID, []string{}, 20, id.Highest, id.Lowest)
 	suite.NoError(err)
 	suite.NotNil(notifications)
 	suite.Empty(notifications)
 }
 
-func (suite *NotificationTestSuite) TestClearNotificationsWithTwoAccounts() {
+func (suite *NotificationTestSuite) TestDeleteNotificationsWithTwoAccounts() {
 	suite.spamNotifs()
 	testAccount := suite.testAccounts["local_account_1"]
-	err := suite.db.ClearNotifications(context.Background(), testAccount.ID)
+	err := suite.db.DeleteNotifications(context.Background(), nil, testAccount.ID, "")
 	suite.NoError(err)
 
-	notifications, err := suite.db.GetNotifications(context.Background(), testAccount.ID, []string{}, 20, id.Highest, id.Lowest)
+	notifications, err := suite.db.GetAccountNotifications(context.Background(), testAccount.ID, []string{}, 20, id.Highest, id.Lowest)
 	suite.NoError(err)
 	suite.NotNil(notifications)
 	suite.Empty(notifications)
@@ -140,6 +141,69 @@ func (suite *NotificationTestSuite) TestClearNotificationsWithTwoAccounts() {
 	err = suite.db.GetAll(context.Background(), &notif)
 	suite.NoError(err)
 	suite.NotEmpty(notif)
+}
+
+func (suite *NotificationTestSuite) TestDeleteNotificationsOriginatingFromAccount() {
+	testAccount := suite.testAccounts["local_account_2"]
+
+	if err := suite.db.DeleteNotifications(context.Background(), nil, "", testAccount.ID); err != nil {
+		suite.FailNow(err.Error())
+	}
+
+	notif := []*gtsmodel.Notification{}
+	if err := suite.db.GetAll(context.Background(), &notif); err != nil && !errors.Is(err, db.ErrNoEntries) {
+		suite.FailNow(err.Error())
+	}
+
+	for _, n := range notif {
+		if n.OriginAccountID == testAccount.ID {
+			suite.FailNowf("", "no notifications with origin account id %s should remain", testAccount.ID)
+		}
+	}
+}
+
+func (suite *NotificationTestSuite) TestDeleteNotificationsOriginatingFromAndTargetingAccount() {
+	originAccount := suite.testAccounts["local_account_2"]
+	targetAccount := suite.testAccounts["admin_account"]
+
+	if err := suite.db.DeleteNotifications(context.Background(), nil, targetAccount.ID, originAccount.ID); err != nil {
+		suite.FailNow(err.Error())
+	}
+
+	notif := []*gtsmodel.Notification{}
+	if err := suite.db.GetAll(context.Background(), &notif); err != nil && !errors.Is(err, db.ErrNoEntries) {
+		suite.FailNow(err.Error())
+	}
+
+	for _, n := range notif {
+		if n.OriginAccountID == originAccount.ID || n.TargetAccountID == targetAccount.ID {
+			suite.FailNowf(
+				"",
+				"no notifications with origin account id %s and target account %s should remain",
+				originAccount.ID,
+				targetAccount.ID,
+			)
+		}
+	}
+}
+
+func (suite *NotificationTestSuite) TestDeleteNotificationsPertainingToStatusID() {
+	testStatus := suite.testStatuses["local_account_1_status_1"]
+
+	if err := suite.db.DeleteNotificationsForStatus(context.Background(), testStatus.ID); err != nil {
+		suite.FailNow(err.Error())
+	}
+
+	notif := []*gtsmodel.Notification{}
+	if err := suite.db.GetAll(context.Background(), &notif); err != nil && !errors.Is(err, db.ErrNoEntries) {
+		suite.FailNow(err.Error())
+	}
+
+	for _, n := range notif {
+		if n.StatusID == testStatus.ID {
+			suite.FailNowf("", "no notifications with status id %s should remain", testStatus.ID)
+		}
+	}
 }
 
 func TestNotificationTestSuite(t *testing.T) {

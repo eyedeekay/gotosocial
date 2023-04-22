@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package processing
 
@@ -165,11 +164,7 @@ func (p *Processor) processCreateStatusFromFederator(ctx context.Context, federa
 		status.Account = a
 	}
 
-	if err := p.timelineStatus(ctx, status); err != nil {
-		return err
-	}
-
-	if err := p.notifyStatus(ctx, status); err != nil {
+	if err := p.timelineAndNotifyStatus(ctx, status); err != nil {
 		return err
 	}
 
@@ -328,7 +323,7 @@ func (p *Processor) processCreateAnnounceFromFederator(ctx context.Context, fede
 		return fmt.Errorf("error adding dereferenced announce to the db: %s", err)
 	}
 
-	if err := p.timelineStatus(ctx, incomingAnnounce); err != nil {
+	if err := p.timelineAndNotifyStatus(ctx, incomingAnnounce); err != nil {
 		return err
 	}
 
@@ -360,10 +355,15 @@ func (p *Processor) processCreateBlockFromFederator(ctx context.Context, federat
 }
 
 func (p *Processor) processCreateFlagFromFederator(ctx context.Context, federatorMsg messages.FromFederator) error {
-	// TODO: handle side effects of flag creation:
-	// - send email to admins
-	// - notify admins
-	return nil
+	incomingReport, ok := federatorMsg.GTSModel.(*gtsmodel.Report)
+	if !ok {
+		return errors.New("flag was not parseable as *gtsmodel.Report")
+	}
+
+	// TODO: handle additional side effects of flag creation:
+	// - notify admins by dm / notification
+
+	return p.emailReport(ctx, incomingReport)
 }
 
 // processUpdateAccountFromFederator handles Activity Update and Object Profile

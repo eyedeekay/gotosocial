@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package timeline_test
 
@@ -24,7 +23,6 @@ import (
 
 	"github.com/stretchr/testify/suite"
 	"github.com/superseriousbusiness/gotosocial/internal/processing"
-	"github.com/superseriousbusiness/gotosocial/internal/state"
 	"github.com/superseriousbusiness/gotosocial/internal/timeline"
 	"github.com/superseriousbusiness/gotosocial/internal/visibility"
 	"github.com/superseriousbusiness/gotosocial/testrig"
@@ -40,15 +38,14 @@ func (suite *ManagerTestSuite) SetupSuite() {
 }
 
 func (suite *ManagerTestSuite) SetupTest() {
-	var state state.State
-	state.Caches.Init()
+	suite.state.Caches.Init()
 
 	testrig.InitTestLog()
 	testrig.InitTestConfig()
 
-	suite.db = testrig.NewTestDB(&state)
+	suite.db = testrig.NewTestDB(&suite.state)
 	suite.tc = testrig.NewTestTypeConverter(suite.db)
-	suite.filter = visibility.NewFilter(suite.db)
+	suite.filter = visibility.NewFilter(&suite.state)
 
 	testrig.StandardDBSetup(suite.db, nil)
 
@@ -75,22 +72,8 @@ func (suite *ManagerTestSuite) TestManagerIntegration() {
 	suite.Equal(0, indexedLen)
 
 	// oldestIndexed should be empty string since there's nothing indexed
-	oldestIndexed, err := suite.manager.GetOldestIndexedID(ctx, testAccount.ID)
-	suite.NoError(err)
+	oldestIndexed := suite.manager.GetOldestIndexedID(ctx, testAccount.ID)
 	suite.Empty(oldestIndexed)
-
-	// trigger status preparation
-	err = suite.manager.PrepareXFromTop(ctx, testAccount.ID, 20)
-	suite.NoError(err)
-
-	// local_account_1 can see 16 statuses out of the testrig statuses in its home timeline
-	indexedLen = suite.manager.GetIndexedLength(ctx, testAccount.ID)
-	suite.Equal(16, indexedLen)
-
-	// oldest should now be set
-	oldestIndexed, err = suite.manager.GetOldestIndexedID(ctx, testAccount.ID)
-	suite.NoError(err)
-	suite.Equal("01F8MH75CBF9JFX4ZAD54N0W0R", oldestIndexed)
 
 	// get hometimeline
 	statuses, err := suite.manager.GetTimeline(ctx, testAccount.ID, "", "", "", 20, false)
@@ -106,22 +89,20 @@ func (suite *ManagerTestSuite) TestManagerIntegration() {
 	suite.Equal(15, indexedLen)
 
 	// oldest should now be different
-	oldestIndexed, err = suite.manager.GetOldestIndexedID(ctx, testAccount.ID)
-	suite.NoError(err)
+	oldestIndexed = suite.manager.GetOldestIndexedID(ctx, testAccount.ID)
 	suite.Equal("01F8MH82FYRXD2RC6108DAJ5HB", oldestIndexed)
 
 	// delete the new oldest status specifically from this timeline, as though local_account_1 had muted or blocked it
 	removed, err := suite.manager.Remove(ctx, testAccount.ID, "01F8MH82FYRXD2RC6108DAJ5HB")
 	suite.NoError(err)
-	suite.Equal(2, removed) // 1 status should be removed, but from both indexed and prepared, so 2 removals total
+	suite.Equal(1, removed) // 1 status should be removed
 
 	// timeline should be shorter
 	indexedLen = suite.manager.GetIndexedLength(ctx, testAccount.ID)
 	suite.Equal(14, indexedLen)
 
 	// oldest should now be different
-	oldestIndexed, err = suite.manager.GetOldestIndexedID(ctx, testAccount.ID)
-	suite.NoError(err)
+	oldestIndexed = suite.manager.GetOldestIndexedID(ctx, testAccount.ID)
 	suite.Equal("01F8MHAAY43M6RJ473VQFCVH37", oldestIndexed)
 
 	// now remove all entries by local_account_2 from the timeline
@@ -132,24 +113,18 @@ func (suite *ManagerTestSuite) TestManagerIntegration() {
 	indexedLen = suite.manager.GetIndexedLength(ctx, testAccount.ID)
 	suite.Equal(7, indexedLen)
 
-	// ingest 1 into the timeline
-	status1 := suite.testStatuses["admin_account_status_1"]
-	ingested, err := suite.manager.Ingest(ctx, status1, testAccount.ID)
-	suite.NoError(err)
-	suite.True(ingested)
-
 	// ingest and prepare another one into the timeline
-	status2 := suite.testStatuses["local_account_2_status_1"]
-	ingested, err = suite.manager.IngestAndPrepare(ctx, status2, testAccount.ID)
+	status := suite.testStatuses["local_account_2_status_1"]
+	ingested, err := suite.manager.IngestOne(ctx, testAccount.ID, status)
 	suite.NoError(err)
 	suite.True(ingested)
 
 	// timeline should be longer now
 	indexedLen = suite.manager.GetIndexedLength(ctx, testAccount.ID)
-	suite.Equal(9, indexedLen)
+	suite.Equal(8, indexedLen)
 
-	// try to ingest status 2 again
-	ingested, err = suite.manager.IngestAndPrepare(ctx, status2, testAccount.ID)
+	// try to ingest same status again
+	ingested, err = suite.manager.IngestOne(ctx, testAccount.ID, status)
 	suite.NoError(err)
 	suite.False(ingested) // should be false since it's a duplicate
 }

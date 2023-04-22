@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package config
 
@@ -52,7 +51,7 @@ var Defaults = Configuration{
 	DbSqliteJournalMode:      "WAL",
 	DbSqliteSynchronous:      "NORMAL",
 	DbSqliteCacheSize:        8 * bytesize.MiB,
-	DbSqliteBusyTimeout:      time.Minute * 5,
+	DbSqliteBusyTimeout:      time.Minute * 30,
 
 	WebTemplateBaseDir: "./web/template/",
 	WebAssetBaseDir:    "./web/assets/",
@@ -103,11 +102,12 @@ var Defaults = Configuration{
 	OIDCScopes:           []string{oidc.ScopeOpenID, "profile", "email", "groups"},
 	OIDCLinkExisting:     false,
 
-	SMTPHost:     "",
-	SMTPPort:     0,
-	SMTPUsername: "",
-	SMTPPassword: "",
-	SMTPFrom:     "GoToSocial",
+	SMTPHost:               "",
+	SMTPPort:               0,
+	SMTPUsername:           "",
+	SMTPPassword:           "",
+	SMTPFrom:               "GoToSocial",
+	SMTPDiscloseRecipients: false,
 
 	SyslogEnabled:  false,
 	SyslogProtocol: "udp",
@@ -119,58 +119,74 @@ var Defaults = Configuration{
 
 	Cache: CacheConfiguration{
 		GTS: GTSCacheConfiguration{
-			AccountMaxSize:   500,
-			AccountTTL:       time.Minute * 5,
-			AccountSweepFreq: time.Second * 30,
+			AccountMaxSize:   2000,
+			AccountTTL:       time.Minute * 30,
+			AccountSweepFreq: time.Minute,
 
-			BlockMaxSize:   100,
-			BlockTTL:       time.Minute * 5,
-			BlockSweepFreq: time.Second * 30,
+			BlockMaxSize:   1000,
+			BlockTTL:       time.Minute * 30,
+			BlockSweepFreq: time.Minute,
 
-			DomainBlockMaxSize:   1000,
+			DomainBlockMaxSize:   2000,
 			DomainBlockTTL:       time.Hour * 24,
 			DomainBlockSweepFreq: time.Minute,
 
-			EmojiMaxSize:   500,
-			EmojiTTL:       time.Minute * 5,
-			EmojiSweepFreq: time.Second * 30,
+			EmojiMaxSize:   2000,
+			EmojiTTL:       time.Minute * 30,
+			EmojiSweepFreq: time.Minute,
 
 			EmojiCategoryMaxSize:   100,
-			EmojiCategoryTTL:       time.Minute * 5,
-			EmojiCategorySweepFreq: time.Second * 30,
+			EmojiCategoryTTL:       time.Minute * 30,
+			EmojiCategorySweepFreq: time.Minute,
 
-			MediaMaxSize:   500,
-			MediaTTL:       time.Minute * 5,
-			MediaSweepFreq: time.Second * 30,
+			FollowMaxSize:   2000,
+			FollowTTL:       time.Minute * 30,
+			FollowSweepFreq: time.Minute,
 
-			MentionMaxSize:   500,
-			MentionTTL:       time.Minute * 5,
-			MentionSweepFreq: time.Second * 30,
+			FollowRequestMaxSize:   2000,
+			FollowRequestTTL:       time.Minute * 30,
+			FollowRequestSweepFreq: time.Minute,
 
-			NotificationMaxSize:   500,
-			NotificationTTL:       time.Minute * 5,
-			NotificationSweepFreq: time.Second * 30,
+			MediaMaxSize:   1000,
+			MediaTTL:       time.Minute * 30,
+			MediaSweepFreq: time.Minute,
+
+			MentionMaxSize:   2000,
+			MentionTTL:       time.Minute * 30,
+			MentionSweepFreq: time.Minute,
+
+			NotificationMaxSize:   1000,
+			NotificationTTL:       time.Minute * 30,
+			NotificationSweepFreq: time.Minute,
 
 			ReportMaxSize:   100,
-			ReportTTL:       time.Minute * 5,
-			ReportSweepFreq: time.Second * 30,
+			ReportTTL:       time.Minute * 30,
+			ReportSweepFreq: time.Minute,
 
-			StatusMaxSize:   500,
-			StatusTTL:       time.Minute * 5,
-			StatusSweepFreq: time.Second * 30,
+			StatusMaxSize:   2000,
+			StatusTTL:       time.Minute * 30,
+			StatusSweepFreq: time.Minute,
 
-			TombstoneMaxSize:   100,
-			TombstoneTTL:       time.Minute * 5,
-			TombstoneSweepFreq: time.Second * 30,
+			StatusFaveMaxSize:   2000,
+			StatusFaveTTL:       time.Minute * 30,
+			StatusFaveSweepFreq: time.Minute,
 
-			UserMaxSize:   100,
-			UserTTL:       time.Minute * 5,
-			UserSweepFreq: time.Second * 30,
+			TombstoneMaxSize:   500,
+			TombstoneTTL:       time.Minute * 30,
+			TombstoneSweepFreq: time.Minute,
+
+			UserMaxSize:   500,
+			UserTTL:       time.Minute * 30,
+			UserSweepFreq: time.Minute,
 
 			WebfingerMaxSize:   250,
 			WebfingerTTL:       time.Hour * 24,
 			WebfingerSweepFreq: time.Minute * 15,
 		},
+
+		VisibilityMaxSize:   2000,
+		VisibilityTTL:       time.Minute * 30,
+		VisibilitySweepFreq: time.Minute,
 	},
 
 	AdminMediaPruneDryRun: true,

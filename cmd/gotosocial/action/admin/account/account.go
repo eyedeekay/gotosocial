@@ -1,20 +1,19 @@
-/*
-   GoToSocial
-   Copyright (C) 2021-2023 GoToSocial Authors admin@gotosocial.org
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU Affero General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU Affero General Public License for more details.
-
-   You should have received a copy of the GNU Affero General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+// GoToSocial
+// Copyright (C) GoToSocial Authors admin@gotosocial.org
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 package account
 
@@ -22,6 +21,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"text/tabwriter"
 	"time"
 
 	"github.com/superseriousbusiness/gotosocial/cmd/gotosocial/action"
@@ -92,6 +93,51 @@ var Create action.GTSAction = func(ctx context.Context) error {
 	}
 
 	return dbConn.Stop(ctx)
+}
+
+// List returns all existing local accounts.
+var List action.GTSAction = func(ctx context.Context) error {
+	var state state.State
+	state.Caches.Init()
+	state.Workers.Start()
+
+	dbConn, err := bundb.NewBunDBService(ctx, &state)
+	if err != nil {
+		return fmt.Errorf("error creating dbservice: %s", err)
+	}
+
+	// Set the state DB connection
+	state.DB = dbConn
+
+	users, err := dbConn.GetAllUsers(ctx)
+	if err != nil {
+		return err
+	}
+
+	fmtBool := func(b *bool) string {
+		if b == nil {
+			return "unknown"
+		}
+		if *b {
+			return "yes"
+		}
+		return "no"
+	}
+
+	fmtDate := func(t time.Time) string {
+		if t.Equal(time.Time{}) {
+			return "no"
+		}
+		return "yes"
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
+	fmt.Fprintln(w, "user\taccount\tapproved\tadmin\tmoderator\tsuspended\tconfirmed")
+	for _, u := range users {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", u.Account.Username, u.AccountID, fmtBool(u.Approved), fmtBool(u.Admin), fmtBool(u.Moderator), fmtDate(u.Account.SuspendedAt), fmtDate(u.ConfirmedAt))
+	}
+	w.Flush()
+	return nil
 }
 
 // Confirm sets a user to Approved, sets Email to the current UnconfirmedEmail value, and sets ConfirmedAt to now.
