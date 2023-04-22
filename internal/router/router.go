@@ -28,7 +28,7 @@ import (
 	"codeberg.org/gruf/go-bytesize"
 	"codeberg.org/gruf/go-debug"
 	"github.com/eyedeekay/onramp"
-	"github.com/eyedeekay/sam3"
+	"github.com/eyedeekay/onramp"
 	"github.com/gin-gonic/gin"
 	"github.com/superseriousbusiness/gotosocial/internal/config"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
@@ -134,7 +134,7 @@ func (r *router) Start() {
 		listen = func() error { return r.srv.ListenAndServeTLS("", "") }
 	} else if config.GetI2PEnabled() {
 		listen = func() error {
-			garlic, err := onramp.NewGarlic("gts-server", "127.0.0.1:7656", sam3.Options_Wide)
+			garlic, err := onramp.NewGarlic("gts-server", "127.0.0.1:7656", onramp.Options_Wide)
 			if err != nil {
 				return err
 			}
