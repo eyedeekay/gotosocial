@@ -30,7 +30,6 @@ import (
 	"codeberg.org/gruf/go-kv"
 	"github.com/cornelk/hashmap"
 	"github.com/eyedeekay/onramp"
-	"github.com/eyedeekay/onramp"
 	"github.com/superseriousbusiness/gotosocial/internal/log"
 )
 
@@ -138,7 +137,7 @@ func New(cfg Config) *Client {
 
 	if cfg.I2PConnections {
 		var err error
-		c.garlic, err = onramp.NewGarlic("gts-client", "127.0.0.1:7656", onramp.Options_Wide)
+		c.garlic, err = onramp.NewGarlic("gts-client", "127.0.0.1:7656", onramp.OPT_WIDE)
 		if err != nil {
 			panic(err)
 		}
